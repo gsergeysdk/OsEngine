@@ -84,7 +84,7 @@ namespace OsEngine.Robots.MyBots
             superTrand = (Aindicator)_tab2.CreateCandleIndicator(superTrand, "Prime");
             ((IndicatorParameterInt)superTrand.Parameters[0]).ValueInt = superTrandLength.ValueInt;
             ((IndicatorParameterDecimal)superTrand.Parameters[1]).ValueDecimal = superTrandDeviation.ValueDecimal;
-            ((IndicatorParameterString)superTrand.Parameters[2]).ValueString = "Median";
+            ((IndicatorParameterString)superTrand.Parameters[2]).ValueString = "Typical";
             ((IndicatorParameterBool)superTrand.Parameters[3]).ValueBool = false;
             superTrand.DataSeries[2].Color = Color.Red;
             superTrand.Save();
@@ -270,49 +270,49 @@ namespace OsEngine.Robots.MyBots
         // Opening logic
         private void LogicOpenPosition(List<Candle> candles)
         {
-            bool tradeTypeBuy = hasSignalToOpen(candles, true);
-            bool tradeTypeSell = hasSignalToOpen(candles, false);
+            // to get a value from a higher timeframe, need to take the value of the completed candle.
+            decimal lastSuperTrand = superTrand.DataSeries[2].Values[superTrand.DataSeries[2].Values.Count - 2];
+            //decimal prevSuperTrand = superTrand.DataSeries[2].Values[superTrand.DataSeries[2].Values.Count - 3];
 
             decimal slippage = Slippage.ValueDecimal * _tab1.Security.PriceStep;
             decimal lastPrice = candles[candles.Count - 1].Close;
 
-            // to get a value from a higher timeframe, need to take the value of the completed candle.
-            decimal lastSuperTrand = superTrand.DataSeries[2].Values[superTrand.DataSeries[2].Values.Count - 2];
-
             bool trandUp = lastPrice > lastSuperTrand && !closePosBuy;
             bool trandDown = lastPrice < lastSuperTrand && !closePosSell;
+            bool tradeTypeBuy = trandUp && (hasSignalToOpen(candles, true));// || lastSuperTrand > prevSuperTrand);
+            bool tradeTypeSell = trandDown && (hasSignalToOpen(candles, false));// || lastSuperTrand < prevSuperTrand);
 
             if (!tradeTypeBuy && !tradeTypeSell)
                 return;
 
             if (ordersCount == 0) // initial position
             {
-                if (tradeTypeBuy && trandUp)
-                    _tab1.BuyAtLimit(GetVolume(_tab1), _tab1.PriceBestAsk + slippage);
-                else if (tradeTypeSell && trandDown)
-                    _tab1.SellAtLimit(GetVolume(_tab1), _tab1.PriceBestBid - slippage);
+                if (tradeTypeBuy)
+                    _tab1.BuyAtLimit(GetVolume(_tab1), _tab1.PriceBestBid - slippage);
+                else if (tradeTypeSell)
+                    _tab1.SellAtLimit(GetVolume(_tab1), _tab1.PriceBestAsk + slippage);
                 return;
             }
 
             if (ordersCount < maxOrdersCount.ValueInt) // усреднение убыточных сделок
             {
                 if (tradeTypeBuy && currentTradeTypeBuy && lastPrice <= orderMinOpenPrice * (1.0m - stepOrdersPercent.ValueDecimal / 100))
-                    _tab1.BuyAtLimit(GetVolume(_tab1), _tab1.PriceBestAsk + slippage);
+                    _tab1.BuyAtLimit(GetVolume(_tab1), _tab1.PriceBestBid - slippage);
                 if (tradeTypeSell && currentTradeTypeSell && lastPrice >= orderMaxOpenPrice * (1.0m + stepOrdersPercent.ValueDecimal / 100))
-                    _tab1.SellAtLimit(GetVolume(_tab1), _tab1.PriceBestBid - slippage);
+                    _tab1.SellAtLimit(GetVolume(_tab1), _tab1.PriceBestAsk + slippage);
             }
 
             if (ordersCount < maxProfitOrdersCount.ValueInt) // доливка по тренду с прибыльными сделками
             {
                 if (tradeTypeBuy && currentTradeTypeBuy && lastPrice >= orderMaxOpenPrice * (1.0m + stepProfitOrdersPercent.ValueDecimal / 100))
                 {
-                    _tab1.BuyAtLimit(GetVolume(_tab1), _tab1.PriceBestAsk + slippage);
-                    breakevenStopPercent = stepProfitOrdersPercent.ValueDecimal;
+                    _tab1.BuyAtLimit(GetVolume(_tab1), _tab1.PriceBestBid - slippage);
+                    //breakevenStopPercent = stepProfitOrdersPercent.ValueDecimal;
                 }
                 if (tradeTypeSell && currentTradeTypeSell && lastPrice <= orderMinOpenPrice * (1.0m - stepProfitOrdersPercent.ValueDecimal / 100))
                 {
-                    _tab1.SellAtLimit(GetVolume(_tab1), _tab1.PriceBestBid - slippage);
-                    breakevenStopPercent = stepProfitOrdersPercent.ValueDecimal;
+                    _tab1.SellAtLimit(GetVolume(_tab1), _tab1.PriceBestAsk + slippage);
+                    //breakevenStopPercent = stepProfitOrdersPercent.ValueDecimal;
                 }
             }
         }
@@ -346,7 +346,7 @@ namespace OsEngine.Robots.MyBots
                 {
                     if (closePosBuy)
                     {
-                        _tab1.CloseAtLimit(position, _tab1.PriceBestBid - slippage, position.OpenVolume);
+                        _tab1.CloseAtLimit(position, _tab1.PriceBestAsk + slippage, position.OpenVolume);
                     }
                     else
                     {
@@ -372,16 +372,16 @@ namespace OsEngine.Robots.MyBots
 
                         if (stopPrice != 0m && position.StopOrderPrice != stopPrice &&
                             (position.StopOrderPrice == 0 || position.StopOrderPrice < position.EntryPrice || position.StopOrderPrice < stopPrice))
-                            _tab1.CloseAtStop(position, stopPrice, stopPrice - slippage * 5); // цена исполнения с запасом
+                            _tab1.CloseAtStop(position, stopPrice, stopPrice - slippage);
                         if (takePrice != 0 && position.ProfitOrderPrice != takePrice)
-                            _tab1.CloseAtProfit(position, takePrice, takePrice + slippage * 5); // цена исполнения с запасом
+                            _tab1.CloseAtProfit(position, takePrice, takePrice + slippage);
                     }
                 }
                 else // If the direction of the position is sale
                 {
                     if (closePosSell)
                     {
-                        _tab1.CloseAtLimit(position, _tab1.PriceBestAsk + slippage, position.OpenVolume);
+                        _tab1.CloseAtLimit(position, _tab1.PriceBestBid - slippage, position.OpenVolume);
                     }
                     else
                     {
@@ -408,9 +408,9 @@ namespace OsEngine.Robots.MyBots
 
                         if (stopPrice != 0m && position.StopOrderPrice != stopPrice &&
                             (position.StopOrderPrice == 0 || position.StopOrderPrice > position.EntryPrice || position.StopOrderPrice > stopPrice))
-                            _tab1.CloseAtStop(position, stopPrice, stopPrice - slippage * 5); // цена исполнения с запасом
+                            _tab1.CloseAtStop(position, stopPrice, stopPrice + slippage);
                         if (takePrice != 0 && position.ProfitOrderPrice != takePrice)
-                            _tab1.CloseAtProfit(position, takePrice, takePrice + slippage * 5); // цена исполнения с запасом
+                            _tab1.CloseAtProfit(position, takePrice, takePrice - slippage);
                     }
                 }
             }
