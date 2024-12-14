@@ -14,8 +14,8 @@ using OsEngine.Logging;
 
 namespace OsEngine.Robots.MyBots
 {
-    [Bot("SDKCryptoTest")] // We create an attribute so that we don't write anything to the BotFactory
-    internal class SDKCryptoTest : BotPanel
+    [Bot("SDKCryptoTrend")] // We create an attribute so that we don't write anything to the BotFactory
+    internal class SDKCryptoTrend : BotPanel
     {
         private BotTabSimple _tab1;
         private BotTabSimple _tab2;
@@ -44,7 +44,7 @@ namespace OsEngine.Robots.MyBots
         // Indicator
         private Aindicator bollinger;
         private Aindicator superTrand;
-        public SDKCryptoTest(string name, StartProgram startProgram) : base(name, startProgram)
+        public SDKCryptoTrend(string name, StartProgram startProgram) : base(name, startProgram)
         {
             TabCreate(BotTabType.Simple);
             TabCreate(BotTabType.Simple);
@@ -104,7 +104,7 @@ namespace OsEngine.Robots.MyBots
             _tab1.CandleFinishedEvent += _tab_CandleFinishedEvent;
             _tab2.CandleFinishedEvent += _tab2_CandleFinishedEvent;
 
-            Description = "SDKCryptoTest";
+            Description = "SDKCryptoTrend";
         }
 
         private void SDKTestBot_ParametrsChangeByUser()
@@ -126,7 +126,7 @@ namespace OsEngine.Robots.MyBots
 
         public override string GetNameStrategyType()
         {
-            return "SDKCryptoTest";
+            return "SDKCryptoTrend";
         }
 
         public override void ShowIndividualSettingsDialog()
