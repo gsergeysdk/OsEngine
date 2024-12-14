@@ -190,9 +190,12 @@ namespace OsEngine.Robots.MyBots
 
         private bool hasSignalToClose(List<Candle> candles, bool buy_position)
         {
-            decimal lastPrice = candles[candles.Count - 1].Close;
-            // to get a value from a higher timeframe, need to take the value of the completed candle.
-            decimal lastSuperTrand = superTrand.DataSeries[2].Values[superTrand.DataSeries[2].Values.Count - 2];
+            // в тестере и оптимизаторе событие CandleFinishedEvent для старшего таймфрейма приходит в начале времени,
+            // и как следствие нужно смотреть на предыдущюю свечу и данные индикатора, индекс 2.
+            // в трейдере реальные данные, и можно брать последнюю свечу.
+            int indexData = StartProgram == StartProgram.IsOsTrader ? 1 : 2;
+            decimal lastPrice = candles[candles.Count - indexData].Close;
+            decimal lastSuperTrand = superTrand.DataSeries[2].Values[superTrand.DataSeries[2].Values.Count - indexData];
             return (!buy_position && lastPrice > lastSuperTrand) || (buy_position && lastPrice < lastSuperTrand);
         }
 
