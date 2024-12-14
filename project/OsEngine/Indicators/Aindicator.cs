@@ -13,14 +13,6 @@ namespace OsEngine.Indicators
 {
     public abstract class Aindicator : IIndicator
     {
-        #region Mandatory overload members
-
-        public abstract void OnStateChange(IndicatorState state);
-
-        public abstract void OnProcess(List<Candle> source, int index);
-
-        #endregion
-
         #region Service
 
         public void Init(string name, StartProgram startProgram)
@@ -28,13 +20,17 @@ namespace OsEngine.Indicators
             Name = name;
             CanDelete = true;
 
-            if (startProgram != StartProgram.IsOsOptimizer)
+            if(startProgram != StartProgram.IsOsOptimizer)
             {
                 Load();
             }
 
             OnStateChange(IndicatorState.Configure);
         }
+
+        public abstract void OnStateChange(IndicatorState state);
+
+        public abstract void OnProcess(List<Candle> source, int index);
 
         public void Clear()
         {
@@ -77,7 +73,7 @@ namespace OsEngine.Indicators
                 }
             }
 
-            if (IncludeIndicators != null)
+            if(IncludeIndicators != null)
             {
                 for (int i = 0; i < IncludeIndicators.Count; i++)
                 {
@@ -88,7 +84,7 @@ namespace OsEngine.Indicators
                 IncludeIndicators = null;
             }
 
-            if (_parameters != null)
+            if(_parameters != null)
             {
                 for (int i = 0; i < _parameters.Count; i++)
                 {
@@ -98,13 +94,13 @@ namespace OsEngine.Indicators
                 _parameters = null;
             }
 
-            if (ParametersDigit != null)
+            if(ParametersDigit != null)
             {
                 ParametersDigit.Clear();
                 ParametersDigit = null;
             }
 
-            if (DataSeries != null)
+            if(DataSeries != null)
             {
                 for (int i = 0; i < DataSeries.Count; i++)
                 {
@@ -112,7 +108,7 @@ namespace OsEngine.Indicators
                     DataSeries[i].Delete();
                 }
                 DataSeries.Clear();
-
+               
                 DataSeries = null;
             }
 
@@ -156,6 +152,10 @@ namespace OsEngine.Indicators
                 Save();
             }
         }
+
+        #endregion
+
+        #region Service information
 
         public StartProgram StartProgram;
 
@@ -345,7 +345,7 @@ namespace OsEngine.Indicators
         /// <summary>
         /// parameter has changed settings
         /// </summary>
-        private void Parameter_ValueChange()
+        void Parameter_ValueChange()
         {
             if (ParametersChangeByUser != null)
             {
@@ -507,7 +507,7 @@ namespace OsEngine.Indicators
 
         #endregion
 
-        #region Candles loading
+        #region Candlestick loading
 
         private List<Candle> _myCandles = new List<Candle>();
 
@@ -515,40 +515,34 @@ namespace OsEngine.Indicators
         {
             //lock(_indicatorUpdateLocker)
             //{
-            if (candles.Count == 0)
-            {
-                return;
-            }
-
-            if (DataSeries == null || DataSeries.Count == 0)
-            {
-                return;
-            }
-
-            if (_myCandles == null ||
-            candles.Count < _myCandles.Count ||
-            candles.Count > _myCandles.Count + 1)
-            {
-                ProcessAll(candles);
-            }
-            else if (candles.Count < DataSeries[0].Values.Count)
-            {
-                foreach (var ds in DataSeries)
+                if (candles.Count == 0)
                 {
-                    ds.Values.Clear();
+                    return;
                 }
-                ProcessAll(candles);
-            }
-            else if (_myCandles.Count == candles.Count)
-            {
-                ProcessLast(candles);
-            }
-            else if (_myCandles.Count + 1 == candles.Count)
-            {
-                ProcessNew(candles, candles.Count - 1);
-            }
+                if (_myCandles == null ||
+                candles.Count < _myCandles.Count ||
+                candles.Count > _myCandles.Count + 1)
+                {
+                    ProcessAll(candles);
+                }
+                else if (candles.Count < DataSeries[0].Values.Count)
+                {
+                    foreach (var ds in DataSeries)
+                    {
+                        ds.Values.Clear();
+                    }
+                    ProcessAll(candles);
+                }
+                else if (_myCandles.Count == candles.Count)
+                {
+                    ProcessLast(candles);
+                }
+                else if (_myCandles.Count + 1 == candles.Count)
+                {
+                    ProcessNew(candles, candles.Count - 1);
+                }
 
-            _myCandles = candles;
+                _myCandles = candles;
             //}
         }
 
@@ -846,6 +840,81 @@ namespace OsEngine.Indicators
         #endregion
     }
 
+    public class IndicatorDataSeries
+    {
+        public IndicatorDataSeries(Color color, string name, IndicatorChartPaintType paintType, bool isPaint)
+        {
+            Name = name;
+            Color = color;
+            ChartPaintType = paintType;
+            IsPaint = isPaint;
+        }
+
+        public string Name;
+
+        public Color Color;
+
+        public IndicatorChartPaintType ChartPaintType;
+
+        public bool IsPaint;
+
+        public string NameSeries;
+
+        public bool CanReBuildHistoricalValues;
+
+        public List<decimal> Values = new List<decimal>();
+
+        public decimal Last
+        {
+            get
+            {
+                if (Values.Count == 0)
+                {
+                    return 0;
+                }
+
+                return Values[Values.Count - 1];
+            }
+        }
+
+        public string GetSaveStr()
+        {
+            string result = "";
+
+            result += Name + "&";
+
+            result += Color.ToArgb() + "&";
+
+            result += ChartPaintType + "&";
+
+            result += IsPaint + "&";
+
+            return result;
+        }
+
+        public void LoadFromStr(string[] array)
+        {
+            Name = array[0];
+
+            Color = Color.FromArgb(Convert.ToInt32(array[1]));
+
+            Enum.TryParse(array[2], out ChartPaintType);
+
+            IsPaint = Convert.ToBoolean(array[3]);
+        }
+
+        public void Clear()
+        {
+            Values.Clear();
+        }
+
+        public void Delete()
+        {
+            Values.Clear();
+            Values = null;
+        }
+    }
+
     public enum IndicatorState
     {
         Configure,
@@ -892,4 +961,5 @@ namespace OsEngine.Indicators
             }
         }
     }
+
 }
