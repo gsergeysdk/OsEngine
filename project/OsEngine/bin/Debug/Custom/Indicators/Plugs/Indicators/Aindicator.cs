@@ -13,17 +13,11 @@ namespace OsEngine.Indicators
 {
     public abstract class Aindicator : IIndicator
     {
-        #region Service
-
-        public void Init(string name, StartProgram startProgram)
+        public void Init(string name)
         {
             Name = name;
             CanDelete = true;
-
-            if (startProgram != StartProgram.IsOsOptimizer)
-            {
-                Load();
-            }
+            Load();
 
             OnStateChange(IndicatorState.Configure);
         }
@@ -32,148 +26,16 @@ namespace OsEngine.Indicators
 
         public abstract void OnProcess(List<Candle> source, int index);
 
-        public void Clear()
-        {
-            _myCandles = new List<Candle>();
+        #region параметры
 
-            if (DataSeries != null)
-            {
-                for (int i = 0; i < DataSeries.Count; i++)
-                {
-                    DataSeries[i].Values.Clear();
-                }
-            }
-
-            if (IncludeIndicators != null)
-            {
-                for (int i = 0; i < IncludeIndicators.Count; i++)
-                {
-                    IncludeIndicators[i].Clear();
-                }
-            }
-        }
-
-        public void Delete()
-        {
-            if (StartProgram != StartProgram.IsOsOptimizer)
-            {
-                if (File.Exists(@"Engine\" + Name + @"Values.txt"))
-                {
-                    File.Delete(@"Engine\" + Name + @"Values.txt");
-                }
-
-                if (File.Exists(@"Engine\" + Name + @"Parametrs.txt"))
-                {
-                    File.Delete(@"Engine\" + Name + @"Parametrs.txt");
-                }
-
-                if (File.Exists(@"Engine\" + Name + @"Base.txt"))
-                {
-                    File.Delete(@"Engine\" + Name + @"Base.txt");
-                }
-            }
-
-            if (IncludeIndicators != null)
-            {
-                for (int i = 0; i < IncludeIndicators.Count; i++)
-                {
-                    IncludeIndicators[i].Clear();
-                    IncludeIndicators[i].Delete();
-                }
-                IncludeIndicators.Clear();
-                IncludeIndicators = null;
-            }
-
-            if (_parameters != null)
-            {
-                for (int i = 0; i < _parameters.Count; i++)
-                {
-                    _parameters[i].ValueChange -= Parameter_ValueChange;
-                }
-                _parameters.Clear();
-                _parameters = null;
-            }
-
-            if (ParametersDigit != null)
-            {
-                ParametersDigit.Clear();
-                ParametersDigit = null;
-            }
-
-            if (DataSeries != null)
-            {
-                for (int i = 0; i < DataSeries.Count; i++)
-                {
-                    DataSeries[i].Clear();
-                    DataSeries[i].Delete();
-                }
-                DataSeries.Clear();
-
-                DataSeries = null;
-            }
-
-            _myCandles = null;
-        }
-
-        public void Load()
-        {
-            if (Name == "")
-            {
-                return;
-            }
-        }
-
-        public void Save()
-        {
-            if (Name == "")
-            {
-                return;
-            }
-
-            if (StartProgram == StartProgram.IsOsOptimizer)
-            {
-                return;
-            }
-
-            SaveParameters();
-            SaveSeries();
-
-        }
-
-        public void ShowDialog()
-        {
-
-        }
-
-        #endregion
-
-        #region Service information
-
-        public StartProgram StartProgram;
-
-        public IndicatorChartPaintType TypeIndicator { get; set; }
-
-        public bool CanDelete { get; set; }
-
-        public string NameSeries { get; set; }
-
-        public string NameArea { get; set; }
-
-        public string Name { get; set; }
-
-        public bool PaintOn { get; set; }
-
-        public bool IsOn { get; set; } = true;
-
-        #endregion
-
-        #region Parameters. Working with strategy parameters
+        // working with strategy parameters / работа с параметрами стратегии
 
         /// <summary>
-        /// create a Decimal type parameter
+        /// create a Decimal type parameter / 
+        /// создать параметр типа Decimal
         /// </summary>
-        /// <param name="name">parameter name</param>
-        /// <param name="value">default value</param>
+        /// <param name="name">param name / Имя параметра</param>
+        /// <param name="value">default value / Значение по умолчанию</param>
         public IndicatorParameterDecimal CreateParameterDecimal(string name, decimal value)
         {
             IndicatorParameter newParameter = _parameters.Find(p => p.Name == name);
@@ -192,10 +54,11 @@ namespace OsEngine.Indicators
         }
 
         /// <summary>
-        /// create int parameter 
+        /// create int parameter / 
+        /// создать параметр типа Int
         /// </summary>
-        /// <param name="name">parameter name</param>
-        /// <param name="value">default value</param>
+        /// <param name="name">param name / Имя параметра</param>
+        /// <param name="value">default value / Значение по умолчанию</param>
         public IndicatorParameterInt CreateParameterInt(string name, int value)
         {
             IndicatorParameter newParameter = _parameters.Find(p => p.Name == name);
@@ -214,11 +77,12 @@ namespace OsEngine.Indicators
         }
 
         /// <summary>
-        /// create string collection parameter
+        /// create string parameter / 
+        /// создать параметр типа String
         /// </summary>
-        /// <param name="name">parameter name</param>
-        /// <param name="value">default value</param>
-        /// <param name="collection">possible enumeration parameters</param>
+        /// <param name="name">param name / Имя параметра</param>
+        /// <param name="value">default value / Значение по умолчанию</param>
+        /// <param name="collection">values / Возможные значения для параметра</param>
         public IndicatorParameterString CreateParameterStringCollection(string name, string value, List<string> collection)
         {
             IndicatorParameter newParameter = _parameters.Find(p => p.Name == name);
@@ -234,10 +98,12 @@ namespace OsEngine.Indicators
         }
 
         /// <summary>
-        /// create string parameter
+        /// create string parameter / 
+        /// создать параметр типа String
         /// </summary>
-        /// <param name="name">parameter name</param>
-        /// <param name="value">default value</param>
+        /// <param name="name">param name / Имя параметра</param>
+        /// <param name="value">default value / Значение по умолчанию</param>
+        /// <param name="collection">values / Возможные значения для параметра</param>
         public IndicatorParameterString CreateParameterString(string name, string value)
         {
             IndicatorParameter newParameter = _parameters.Find(p => p.Name == name);
@@ -252,11 +118,13 @@ namespace OsEngine.Indicators
             return (IndicatorParameterString)LoadParameterValues(newParameter);
         }
 
+
         /// <summary>
-        /// create bool type parameter
+        /// create bool type parameter / 
+        /// создать параметр типа Bool
         /// </summary>
-        /// <param name="name">parameter name</param>
-        /// <param name="value">default value</param>
+        /// <param name="name">param name / Имя параметра</param>
+        /// <param name="value">default value / Значение по умолчанию</param>
         public IndicatorParameterBool CreateParameterBool(string name, bool value)
         {
             IndicatorParameter newParameter = _parameters.Find(p => p.Name == name);
@@ -271,8 +139,10 @@ namespace OsEngine.Indicators
         }
 
         /// <summary>
-        /// load parameter settings
+        /// load parameter settings / 
+        /// загрузить настройки параметра
         /// </summary>
+        /// <param name="newParameter">setting parameter you want to load / параметр настройки которого нужно загрузить</param>
         private IndicatorParameter LoadParameterValues(IndicatorParameter newParameter)
         {
             GetValueParameterSaveByUser(newParameter);
@@ -285,7 +155,8 @@ namespace OsEngine.Indicators
         }
 
         /// <summary>
-        /// load parameter settings from file
+        /// load parameter settings from file / 
+        /// загрузить настройки параметра из файла
         /// </summary>
         private void GetValueParameterSaveByUser(IndicatorParameter parameter)
         {
@@ -321,7 +192,8 @@ namespace OsEngine.Indicators
         }
 
         /// <summary>
-        /// the list of options available in the panel
+        /// the list of options available in the panel / 
+        /// список параметров доступных у панели
         /// </summary>
         public List<IndicatorParameter> Parameters
         {
@@ -330,25 +202,27 @@ namespace OsEngine.Indicators
         private List<IndicatorParameter> _parameters = new List<IndicatorParameter>();
 
         /// <summary>
-        /// digital parameters of the indicator
+        /// Цифровые параметры индикатора
         /// </summary>
         public List<ParameterDigit> ParametersDigit = new List<ParameterDigit>();
 
         /// <summary>
-        /// parameter has changed settings
+        /// parameter has changed settings / 
+        /// у параметра изменились настройки
         /// </summary>
-        private void Parameter_ValueChange()
+        void Parameter_ValueChange()
         {
-            if (ParametersChangeByUser != null)
+            if (ParametrsChangeByUser != null)
             {
-                ParametersChangeByUser();
+                ParametrsChangeByUser();
             }
         }
 
         /// <summary>
-        /// save parameter values
+        /// save parameter values / 
+        /// сохранить значения параметров
         /// </summary>
-        private void SaveParameters()
+        private void SaveParametrs()
         {
             if (Name == "")
             {
@@ -359,12 +233,6 @@ namespace OsEngine.Indicators
             {
                 return;
             }
-
-            if (StartProgram == StartProgram.IsOsOptimizer)
-            {
-                return;
-            }
-
             try
             {
                 using (StreamWriter writer = new StreamWriter(@"Engine\" + Name + @"Parametrs.txt", false)
@@ -382,16 +250,65 @@ namespace OsEngine.Indicators
             {
                 // ignore
             }
+
+
         }
 
         /// <summary>
-        /// parameter has changed state
+        /// parameter has changed state / 
+        /// у параметра изменилось состояние
         /// </summary>
-        public event Action ParametersChangeByUser;
+        public event Action ParametrsChangeByUser;
 
         #endregion
 
-        #region Built-in indicators
+        public void Delete()
+        {
+            if (File.Exists(@"Engine\" + Name + @"Values.txt"))
+            {
+                File.Delete(@"Engine\" + Name + @"Values.txt");
+            }
+            if (File.Exists(@"Engine\" + Name + @"Parametrs.txt"))
+            {
+                File.Delete(@"Engine\" + Name + @"Parametrs.txt");
+            }
+            if (File.Exists(@"Engine\" + Name + @"Base.txt"))
+            {
+                File.Delete(@"Engine\" + Name + @"Base.txt");
+            }
+
+            for (int i = 0; IncludeIndicators != null && i < IncludeIndicators.Count; i++)
+            {
+                IncludeIndicators[i].Delete();
+            }
+        }
+
+        public void Load()
+        {
+            if (Name == "")
+            {
+                return;
+            }
+        }
+
+        public void Save()
+        {
+            if (Name == "")
+            {
+                return;
+            }
+
+            SaveParametrs();
+            SaveSeries();
+
+        }
+
+        public void ShowDialog()
+        {
+
+        }
+
+        #region встроенные индикаторы для прогрузки свечками
 
         public List<Aindicator> IncludeIndicators = new List<Aindicator>();
 
@@ -405,7 +322,7 @@ namespace OsEngine.Indicators
 
         #endregion
 
-        #region Data series
+        #region серии данных
 
         public IndicatorDataSeries CreateSeries(string name, Color color,
             IndicatorChartPaintType chartPaintType, bool isPaint)
@@ -417,14 +334,18 @@ namespace OsEngine.Indicators
 
             IndicatorDataSeries newSeries = new IndicatorDataSeries(color, name, chartPaintType, isPaint);
             DataSeries.Add(newSeries);
-            CheckSeriesParametersInSaveData(newSeries);
+            CheckSeriesParamsInSaveData(newSeries);
 
             return newSeries;
         }
 
         public List<IndicatorDataSeries> DataSeries = new List<IndicatorDataSeries>();
 
-        private void CheckSeriesParametersInSaveData(IndicatorDataSeries series)
+        /// <summary>
+        /// попробовать загрузить ранее сохранённую сервию
+        /// </summary>
+        /// <param name="series"></param>
+        private void CheckSeriesParamsInSaveData(IndicatorDataSeries series)
         {
             if (Name == "")
             {
@@ -487,11 +408,17 @@ namespace OsEngine.Indicators
             }
         }
 
+        /// <summary>
+        /// all indicator values/все значения индикатора
+        /// </summary>
         List<List<decimal>> IIndicator.ValuesToChart
         {
             get { return null; }
         }
 
+        /// <summary>
+        /// indicator colors/цвета для индикатора
+        /// </summary>
         List<Color> IIndicator.Colors
         {
             get { return null; }
@@ -499,30 +426,68 @@ namespace OsEngine.Indicators
 
         #endregion
 
-        #region Candlestick loading
+        #region сервисная информация
+
+        public IndicatorChartPaintType TypeIndicator { get; set; }
+
+        public bool CanDelete { get; set; }
+
+        public string NameSeries { get; set; }
+
+        public string NameArea { get; set; }
+
+        public string Name { get; set; }
+
+        public bool PaintOn { get; set; }
+
+        #endregion
+
+        /// <summary>
+        /// reload indicator
+        /// перезагрузить индикатор
+        /// </summary>
+        public void Reload()
+        {
+            if (_myCandles == null)
+            {
+                return;
+            }
+
+            ProcessAll(_myCandles);
+
+            if (NeedToReloadEvent != null)
+            {
+                NeedToReloadEvent(this);
+            }
+        }
+
+        public event Action<IIndicator> NeedToReloadEvent;
+
+        public void Clear()
+        {
+            _myCandles = new List<Candle>();
+
+            for (int i = 0; i < DataSeries.Count; i++)
+            {
+                DataSeries[i].Values.Clear();
+            }
+
+        }
 
         private List<Candle> _myCandles = new List<Candle>();
 
+        // подгрузка в индикатор свечек
+
         public void Process(List<Candle> candles)
         {
-            //lock(_indicatorUpdateLocker)
-            //{
             if (candles.Count == 0)
             {
                 return;
             }
             if (_myCandles == null ||
-            candles.Count < _myCandles.Count ||
-            candles.Count > _myCandles.Count + 1)
+                candles.Count < _myCandles.Count ||
+                candles.Count > _myCandles.Count + 1)
             {
-                ProcessAll(candles);
-            }
-            else if (candles.Count < DataSeries[0].Values.Count)
-            {
-                foreach (var ds in DataSeries)
-                {
-                    ds.Values.Clear();
-                }
                 ProcessAll(candles);
             }
             else if (_myCandles.Count == candles.Count)
@@ -535,7 +500,6 @@ namespace OsEngine.Indicators
             }
 
             _myCandles = candles;
-            //}
         }
 
         private void ProcessAll(List<Candle> candles)
@@ -559,48 +523,17 @@ namespace OsEngine.Indicators
 
         private void ProcessLast(List<Candle> candles)
         {
-            for (int i = 0; i < DataSeries.Count; i++)
-            {
-                while (DataSeries[i].Values.Count < candles.Count)
-                {
-                    if (DataSeries[i].Values.Count == 0)
-                    {
-                        DataSeries[i].Values.Add(0);
-                    }
-                    else
-                    {
-                        DataSeries[i].Values.Add(0);
-                        // DataSeries[i].Values.Add(DataSeries[i].Values[DataSeries[i].Values.Count-1]);
-                    }
-                }
-            }
-
-            for (int i = 0; i < IncludeIndicators.Count; i++)
-            {
-                if (IncludeIndicators[i].IsOn == true &&
-                    IsOn == false)
-                {
-                    IncludeIndicators[i].IsOn = false;
-                }
-                if (IncludeIndicators[i].IsOn == false &&
-                    IsOn == true)
-                {
-                    IncludeIndicators[i].IsOn = true;
-                }
-            }
-
-            if (candles.Count <= 0)
-            {
-                return;
-            }
             for (int i = 0; i < IncludeIndicators.Count; i++)
             {
                 IncludeIndicators[i].Process(candles);
             }
 
-            if (IsOn == false)
+            for (int i = 0; i < DataSeries.Count; i++)
             {
-                return;
+                while (DataSeries[i].Values.Count < candles.Count)
+                {
+                    DataSeries[i].Values.Add(0);
+                }
             }
 
             OnProcess(candles, candles.Count - 1);
@@ -608,82 +541,25 @@ namespace OsEngine.Indicators
 
         private void ProcessNew(List<Candle> candles, int index)
         {
-            if (candles.Count <= 0 ||
-                index < 0)
-            {
-                return;
-            }
-
-            for (int i = 0; i < DataSeries.Count; i++)
-            {
-                while (DataSeries[i].Values.Count < candles.Count)
-                {
-                    if (DataSeries[i].Values.Count == 0)
-                    {
-                        DataSeries[i].Values.Add(0);
-                    }
-                    else
-                    {
-                        DataSeries[i].Values.Add(DataSeries[i].Values[DataSeries[i].Values.Count - 1]);
-                    }
-                }
-            }
-
-            for (int i = 0; i < IncludeIndicators.Count; i++)
-            {
-                if (IncludeIndicators[i].IsOn == true &&
-                    IsOn == false)
-                {
-                    IncludeIndicators[i].IsOn = false;
-                }
-                if (IncludeIndicators[i].IsOn == false &&
-                    IsOn == true)
-                {
-                    IncludeIndicators[i].IsOn = true;
-                }
-            }
-
             for (int i = 0; i < IncludeIndicators.Count; i++)
             {
                 IncludeIndicators[i].Process(candles);
             }
-
-            if (IsOn == false)
+            for (int i = 0; i < DataSeries.Count; i++)
             {
-                return;
+                while (DataSeries[i].Values.Count < index + 1)
+                {
+                    DataSeries[i].Values.Add(0);
+                }
             }
 
             OnProcess(candles, index);
         }
 
-        public void Reload()
-        {
-            if (_myCandles == null)
-            {
-                return;
-            }
-
-            //lock(_indicatorUpdateLocker)
-            //{
-            ProcessAll(_myCandles);
-            //}
-
-            if (NeedToReloadEvent != null)
-            {
-                NeedToReloadEvent(this);
-            }
-        }
-
-        public event Action<IIndicator> NeedToReloadEvent;
-
-        #endregion
-
-        #region  Loading of data arrays into the indicator
+        // подгрузка в индикатор массивов данных
 
         public void Process(List<decimal> values)
         {
-            //lock(_indicatorUpdateLocker)
-            //{
             if (values.Count == 0)
             {
                 return;
@@ -702,7 +578,6 @@ namespace OsEngine.Indicators
             {
                 ProcessNew(values, values.Count);
             }
-            // }
         }
 
         private void ProcessAll(List<decimal> values)
@@ -726,9 +601,9 @@ namespace OsEngine.Indicators
 
         private void ProcessLast(List<decimal> values)
         {
-            if (values.Count <= 0)
+            for (int i = 0; i < IncludeIndicators.Count; i++)
             {
-                return;
+                IncludeIndicators[i].Process(values);
             }
 
             for (int i = 0; i < DataSeries.Count; i++)
@@ -737,30 +612,6 @@ namespace OsEngine.Indicators
                 {
                     DataSeries[i].Values.Add(0);
                 }
-            }
-
-            for (int i = 0; i < IncludeIndicators.Count; i++)
-            {
-                if (IncludeIndicators[i].IsOn == true &&
-                    IsOn == false)
-                {
-                    IncludeIndicators[i].IsOn = false;
-                }
-                if (IncludeIndicators[i].IsOn == false &&
-                    IsOn == true)
-                {
-                    IncludeIndicators[i].IsOn = true;
-                }
-            }
-
-            for (int i = 0; i < IncludeIndicators.Count; i++)
-            {
-                IncludeIndicators[i].Process(values);
-            }
-
-            if (IsOn == false)
-            {
-                return;
             }
 
             while (_myCandles.Count < values.Count)
@@ -778,42 +629,16 @@ namespace OsEngine.Indicators
 
         private void ProcessNew(List<decimal> values, int index)
         {
-            if (values.Count <= 0 ||
-                index <= 0)
-            {
-                return;
-            }
-
-            for (int i = 0; i < DataSeries.Count; i++)
-            {
-                while (DataSeries[i].Values.Count < values.Count)
-                {
-                    DataSeries[i].Values.Add(0);
-                }
-            }
-
-            for (int i = 0; i < IncludeIndicators.Count; i++)
-            {
-                if (IncludeIndicators[i].IsOn == true &&
-                    IsOn == false)
-                {
-                    IncludeIndicators[i].IsOn = false;
-                }
-                if (IncludeIndicators[i].IsOn == false &&
-                    IsOn == true)
-                {
-                    IncludeIndicators[i].IsOn = true;
-                }
-            }
-
             for (int i = 0; i < IncludeIndicators.Count; i++)
             {
                 IncludeIndicators[i].Process(values);
             }
-
-            if (IsOn == false)
+            for (int i = 0; i < DataSeries.Count; i++)
             {
-                return;
+                while (DataSeries[i].Values.Count < index + 1)
+                {
+                    DataSeries[i].Values.Add(0);
+                }
             }
 
             while (_myCandles.Count < index)
@@ -828,8 +653,6 @@ namespace OsEngine.Indicators
 
             OnProcess(_myCandles, index);
         }
-
-        #endregion
     }
 
     public class IndicatorDataSeries
@@ -854,8 +677,14 @@ namespace OsEngine.Indicators
 
         public bool CanReBuildHistoricalValues;
 
+        /// <summary>
+        /// массив с данными серии
+        /// </summary>
         public List<decimal> Values = new List<decimal>();
 
+        /// <summary>
+        /// последнее значение индикатора
+        /// </summary>
         public decimal Last
         {
             get
@@ -894,17 +723,6 @@ namespace OsEngine.Indicators
 
             IsPaint = Convert.ToBoolean(array[3]);
         }
-
-        public void Clear()
-        {
-            Values.Clear();
-        }
-
-        public void Delete()
-        {
-            Values.Clear();
-            Values = null;
-        }
     }
 
     public enum IndicatorState
@@ -915,9 +733,9 @@ namespace OsEngine.Indicators
 
     public class ParameterDigit
     {
-        public ParameterDigit(IndicatorParameter parameter)
+        public ParameterDigit(IndicatorParameter param)
         {
-            _parameter = parameter;
+            _parameter = param;
         }
 
         private IndicatorParameter _parameter;
@@ -953,4 +771,5 @@ namespace OsEngine.Indicators
             }
         }
     }
+
 }
