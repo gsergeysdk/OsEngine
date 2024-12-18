@@ -18,7 +18,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using WebSocketSharp;
+using WebSocket4Net;
 using TradeResponse = OsEngine.Market.Servers.Binance.Spot.BinanceSpotEntity.TradeResponse;
 using System.Net;
 
@@ -1208,13 +1208,11 @@ namespace OsEngine.Market.Servers.Binance.Futures
                 string urlStr = wss_point + "/ws/" + _listenKey;
 
                 _socketPrivateData = new WebSocket(urlStr);
-                _socketPrivateData.EmitOnPing = true;
-                _socketPrivateData.SslConfiguration.EnabledSslProtocols = System.Security.Authentication.SslProtocols.None;
-                _socketPrivateData.OnOpen += _socketClient_Opened;
-                _socketPrivateData.OnMessage += _socketClient_PrivateMessage;
-                _socketPrivateData.OnError += _socketClient_Error;
-                _socketPrivateData.OnClose += _socketClient_Closed;
-                _socketPrivateData.Connect();
+                _socketPrivateData.Opened += _socketClient_Opened;
+                _socketPrivateData.Closed += _socketClient_Closed;
+                _socketPrivateData.Error += _socketClient_Error;
+                _socketPrivateData.MessageReceived += _socketClient_PrivateMessage;
+                _socketPrivateData.Open();
 
                 _socketsArray.Add("userDataStream", _socketPrivateData);
 
@@ -1231,10 +1229,10 @@ namespace OsEngine.Market.Servers.Binance.Futures
             {
                 if (_socketPrivateData != null)
                 {
-                    _socketPrivateData.OnOpen -= _socketClient_Opened;
-                    _socketPrivateData.OnMessage -= _socketClient_PrivateMessage;
-                    _socketPrivateData.OnError -= _socketClient_Error;
-                    _socketPrivateData.OnClose -= _socketClient_Closed;
+                    _socketPrivateData.Opened -= _socketClient_Opened;
+                    _socketPrivateData.Closed -= _socketClient_Closed;
+                    _socketPrivateData.Error -= _socketClient_Error;
+                    _socketPrivateData.MessageReceived -= _socketClient_PrivateMessage;
                 }
             }
             catch
@@ -1250,13 +1248,49 @@ namespace OsEngine.Market.Servers.Binance.Futures
                 {
                     foreach (var ws in _socketsArray)
                     {
-                        ws.Value.OnMessage -= _socket_PublicMessage;
-                        ws.Value.OnError -= _socketClient_Error;
-                        ws.Value.OnClose -= _socketClient_Closed;
+                        ws.Value.Closed -= new EventHandler(_socketClient_Closed);
+                        ws.Value.Error -= new EventHandler<SuperSocket.ClientEngine.ErrorEventArgs>(_socketClient_Error);
+                        ws.Value.MessageReceived -= new EventHandler<MessageReceivedEventArgs>(_socket_PublicMessage);
+                    }
+                }
+            }
+            catch
+            {
+                // ignore
+            }
 
+            try
+            {
+                if (_socketsArray != null)
+                {
+                    foreach (var ws in _socketsArray)
+                    {
                         try
                         {
-                            ws.Value.CloseAsync();
+                            ws.Value.Close();
+                        }
+                        catch
+                        {
+                            // ignore
+                        }
+                        
+                    }
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+
+            try
+            {
+                if (_socketsArray != null)
+                {
+                    foreach (var ws in _socketsArray)
+                    {
+                        try
+                        {
+                            ws.Value.Dispose();
                         }
                         catch
                         {
@@ -1321,30 +1355,30 @@ namespace OsEngine.Market.Servers.Binance.Futures
             }
         }
 
-        private void _socketClient_Error(object sender, WebSocketSharp.ErrorEventArgs e)
+        private void _socketClient_Error(object sender, SuperSocket.ClientEngine.ErrorEventArgs e)
         {
             SendLogMessage("Error websocket :" + e.ToString(), LogMessageType.Error);
         }
 
-        private void _socketClient_PrivateMessage(object sender, MessageEventArgs e)
+        private void _socketClient_PrivateMessage(object sender, MessageReceivedEventArgs e)
         {
             if (ServerStatus == ServerConnectStatus.Disconnect)
             {
                 return;
             }
             BinanceUserMessage message = new BinanceUserMessage();
-            message.MessageStr = e.Data;
+            message.MessageStr = e.Message;
             _queuePrivateMessages.Enqueue(message);
         }
 
-        private void _socket_PublicMessage(object sender, MessageEventArgs e)
+        private void _socket_PublicMessage(object sender, MessageReceivedEventArgs e)
         {
             if (ServerStatus == ServerConnectStatus.Disconnect)
             {
                 return;
             }
 
-            _queuePublicMessages.Enqueue(e.Data);
+            _queuePublicMessages.Enqueue(e.Message);
         }
 
         #endregion
@@ -1416,34 +1450,30 @@ namespace OsEngine.Market.Servers.Binance.Futures
 
             _subscribledSecurities.Add(security);
 
-            string urlStrDepth = null;
-
-            if (((ServerParameterBool)ServerParameters[11]).Value == false)
-            {
-                urlStrDepth = wss_point + "/stream?streams="
-                             + security.Name.ToLower() + "@depth5"
+            string urlStrDepth = wss_point + "/stream?streams="
+                             + security.Name.ToLower() + "@depth20"
                              + "/" + security.Name.ToLower() + "@trade";
-
-            }
-            else
-            {
-                urlStrDepth = wss_point + "/stream?streams="
-                 + security.Name.ToLower() + "@depth20"
-                 + "/" + security.Name.ToLower() + "@trade";
-            }
 
             WebSocket wsClientDepth = new WebSocket(urlStrDepth);
 
-            wsClientDepth.EmitOnPing = true;
-            wsClientDepth.SslConfiguration.EnabledSslProtocols = System.Security.Authentication.SslProtocols.None;
-
-            wsClientDepth.OnMessage += _socket_PublicMessage;
-            wsClientDepth.OnError += _socketClient_Error;
-            wsClientDepth.OnClose += _socketClient_Closed;
-            wsClientDepth.ConnectAsync();
+            wsClientDepth.Closed += new EventHandler(_socketClient_Closed);
+            wsClientDepth.Error += new EventHandler<SuperSocket.ClientEngine.ErrorEventArgs>(_socketClient_Error);
+            wsClientDepth.MessageReceived += new EventHandler<MessageReceivedEventArgs>(_socket_PublicMessage);
+            wsClientDepth.Open();
 
             _socketsArray.Add(security.Name + "_depth20", wsClientDepth);
 
+            /*  string urlStrTrades = wss_point + "/stream?streams="
+                 + security.Name.ToLower() + "@trade";
+
+            WebSocket wsClientTrades = new WebSocket(urlStrTrades);
+
+            wsClientTrades.Closed += new EventHandler(_socketClient_Closed);
+            wsClientTrades.Error += new EventHandler<SuperSocket.ClientEngine.ErrorEventArgs>(_socketClient_Error);
+            wsClientTrades.MessageReceived += new EventHandler<MessageReceivedEventArgs>(_socket_PublicMessage);
+            wsClientTrades.Open();
+
+            _socketsArray.Add(security.Name + "_trades", wsClientTrades);*/
         }
 
         #endregion
@@ -1574,22 +1604,13 @@ namespace OsEngine.Market.Servers.Binance.Futures
         {
             const string EVENT_NAME_KEY = "e";
             const string LISTEN_KEY_EXPIRED_EVENT_NAME = "listenKeyExpired";
-
-            try
+            JObject userDataMsgJSON = JObject.Parse(userDataMsg);
+            if (userDataMsgJSON != null && userDataMsgJSON.Property(EVENT_NAME_KEY) != null)
             {
-                JObject userDataMsgJSON = JObject.Parse(userDataMsg);
-
-                if (userDataMsgJSON != null && userDataMsgJSON.Property(EVENT_NAME_KEY) != null)
-                {
-                    string eventName = userDataMsgJSON.Value<string>(EVENT_NAME_KEY);
-                    return String.Equals(eventName, LISTEN_KEY_EXPIRED_EVENT_NAME, StringComparison.OrdinalIgnoreCase);
-                }
-                return false;
+                string eventName = userDataMsgJSON.Value<string>(EVENT_NAME_KEY);
+                return String.Equals(eventName, LISTEN_KEY_EXPIRED_EVENT_NAME, StringComparison.OrdinalIgnoreCase);
             }
-            catch
-            {
-                return false;
-            }
+            return false;
         }
 
         private void UpdatePortfolio(AccountResponseFuturesFromWebSocket portfs)
@@ -2022,15 +2043,6 @@ namespace OsEngine.Market.Servers.Binance.Futures
 
                     if (MarketDepthEvent != null)
                     {
-                        if (_queuePublicMessages.Count < 1000)
-                        {
-                            MarketDepthEvent(needDepth.GetCopy());
-                        }
-                        else
-                        {
-                            MarketDepthEvent(needDepth);
-                        }
-
                         MarketDepthEvent(needDepth.GetCopy());
                     }
                 }
@@ -2103,27 +2115,9 @@ namespace OsEngine.Market.Servers.Binance.Futures
 
                 var res = CreateQuery(Method.POST, "/" + type_str_selector + "/v1/order", param, true);
 
-                if (res != null 
-                    && res.Contains("clientOrderId"))
+                if (res != null && res.Contains("clientOrderId"))
                 {
-                    OrderActionResponse orderResponse =
-                    JsonConvert.DeserializeAnonymousType(res, new OrderActionResponse());
-
-                    if(orderResponse.status == "NEW"
-                        || orderResponse.status == "PARTIALLY_FILLED"
-                        || orderResponse.status == "FILLED")
-                    {
-                        SendLogMessage(res, LogMessageType.Trade);
-                    }
-                    else
-                    {
-                        order.State = OrderStateType.Fail;
-
-                        if (MyOrderEvent != null)
-                        {
-                            MyOrderEvent(order);
-                        }
-                    }
+                    SendLogMessage(res, LogMessageType.Trade);
                 }
                 else
                 {
