@@ -4,9 +4,9 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace OsEngine.Indicators
+namespace OsEngine.Indicators.Samples
 {
-    public class IndicatorDataSeries
+    internal class Sample2IndicatorDataSeries
     {
     }
 }
