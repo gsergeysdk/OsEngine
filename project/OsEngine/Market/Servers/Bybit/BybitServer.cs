@@ -8,6 +8,7 @@ using Newtonsoft.Json.Linq;
 using OsEngine.Entity;
 using OsEngine.Language;
 using OsEngine.Logging;
+using OsEngine.Market.Servers.BitStamp.BitStampEntity;
 using OsEngine.Market.Servers.Bybit.Entities;
 using OsEngine.Market.Servers.Entity;
 using System;
@@ -20,7 +21,7 @@ using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
-using WebSocketSharp;
+using WebSocket4Net;
 
 namespace OsEngine.Market.Servers.Bybit
 {
@@ -109,7 +110,7 @@ namespace OsEngine.Market.Servers.Bybit
             }
             catch (Exception ex)
             {
-                HandlerException(ex);
+                HandlerExeption(ex);
 
             }
         }
@@ -133,7 +134,7 @@ namespace OsEngine.Market.Servers.Bybit
                     return;
                 }
                 if (webSocketPrivate == null 
-                    || webSocketPrivate?.ReadyState != WebSocketState.Open)
+                    || webSocketPrivate?.State != WebSocketState.Open)
                 {
                     Disconnect();
                     return;
@@ -149,7 +150,7 @@ namespace OsEngine.Market.Servers.Bybit
                 WebSocket webSocketPublicSpot = _webSocketPublicSpot[0];
 
                 if (webSocketPublicSpot == null 
-                    || webSocketPublicSpot?.ReadyState != WebSocketState.Open)
+                    || webSocketPublicSpot?.State != WebSocketState.Open)
                 {
                     Disconnect();
                     return;
@@ -158,7 +159,7 @@ namespace OsEngine.Market.Servers.Bybit
                 WebSocket webSocketPublicLinear = _webSocketPublicLinear[0];
 
                 if (webSocketPublicLinear == null 
-                    || webSocketPublicLinear?.ReadyState != WebSocketState.Open)
+                    || webSocketPublicLinear?.State != WebSocketState.Open)
                 {
                     Disconnect();
                     return;
@@ -171,7 +172,7 @@ namespace OsEngine.Market.Servers.Bybit
             }
             catch (Exception ex)
             {
-                HandlerException(ex);
+                HandlerExeption(ex);
             }
         }
 
@@ -192,7 +193,7 @@ namespace OsEngine.Market.Servers.Bybit
                 }
                 catch (Exception ex)
                 {
-                    HandlerException(ex);
+                    HandlerExeption(ex);
                 }
             }
             catch
@@ -401,7 +402,7 @@ namespace OsEngine.Market.Servers.Bybit
             }
             catch (Exception ex)
             {
-                HandlerException(ex);
+                HandlerExeption(ex);
             }
         }
 
@@ -419,11 +420,9 @@ namespace OsEngine.Market.Servers.Bybit
                 for (int i = 0; i < symbols.result.list.Count - 1; i++)
                 {
                     Symbols oneSec = symbols.result.list[i];
-
                     if (oneSec.status.ToLower() == "trading")
                     {
-                        if (category == Category.spot 
-                            && !spotFilter.Exists((f) => f == oneSec.quoteCoin))
+                        if (category == Category.spot && !spotFilter.Exists((f) => f == oneSec.quoteCoin))
                         {
                             continue;
                         }
@@ -436,16 +435,7 @@ namespace OsEngine.Market.Servers.Bybit
                         security.NameFull = oneSec.symbol;
                         security.NameClass = category == Category.spot ? oneSec.quoteCoin : oneSec.contractType;
                         security.NameId = oneSec.symbol;
-
-                        if(category == Category.linear)
-                        {
-                            security.SecurityType = SecurityType.Futures;
-                        }
-                        else
-                        {
-                            security.SecurityType = SecurityType.CurrencyPair;
-                        }
-
+                        security.SecurityType = SecurityType.CurrencyPair;
                         security.PriceStep = oneSec.priceFilter.tickSize.ToDecimal();
                         security.PriceStepCost = oneSec.priceFilter.tickSize.ToDecimal();
                         security.MinTradeAmount = oneSec.lotSizeFilter.minOrderQty.ToDecimal();
@@ -459,7 +449,7 @@ namespace OsEngine.Market.Servers.Bybit
             }
             catch (Exception ex)
             {
-                HandlerException(ex);
+                HandlerExeption(ex);
             }
         }
 
@@ -502,7 +492,7 @@ namespace OsEngine.Market.Servers.Bybit
                 }
                 catch (Exception ex)
                 {
-                    HandlerException(ex);
+                    HandlerExeption(ex);
                 }
             }
 
@@ -591,7 +581,7 @@ namespace OsEngine.Market.Servers.Bybit
             }
             catch (Exception ex)
             {
-                HandlerException(ex);
+                HandlerExeption(ex);
             }
         }
 
@@ -787,7 +777,7 @@ namespace OsEngine.Market.Servers.Bybit
             }
             catch (Exception ex)
             {
-                HandlerException(ex);
+                HandlerExeption(ex);
             }
             return null;
         }
@@ -850,7 +840,7 @@ namespace OsEngine.Market.Servers.Bybit
             }
             catch (Exception ex)
             {
-                HandlerException(ex);
+                HandlerExeption(ex);
             }
             return null;
         }
@@ -911,7 +901,7 @@ namespace OsEngine.Market.Servers.Bybit
             }
             catch (Exception ex)
             {
-                HandlerException(ex);
+                HandlerExeption(ex);
                 return trades;
             }
         }
@@ -1009,21 +999,25 @@ namespace OsEngine.Market.Servers.Bybit
             }
             catch (Exception ex)
             {
-                HandlerException(ex);
+                HandlerExeption(ex);
             }
         }
 
         private WebSocket CreateNewSpotPublicSocket()
         {
             WebSocket webSocketPublicSpot = new WebSocket(wsPublicUrl(Category.spot));
-            webSocketPublicSpot.EmitOnPing = true;
-            webSocketPublicSpot.SslConfiguration.EnabledSslProtocols = System.Security.Authentication.SslProtocols.None;
-            webSocketPublicSpot.OnOpen += WebSocketPublic_Opened;
-            webSocketPublicSpot.OnMessage += WebSocketPublic_MessageReceivedSpot;
-            webSocketPublicSpot.OnError += WebSocketPublic_Error;
-            webSocketPublicSpot.OnClose += WebSocketPublic_Opened;
 
-            webSocketPublicSpot.Connect();
+            webSocketPublicSpot.EnableAutoSendPing = true;
+            webSocketPublicSpot.AutoSendPingInterval = 10;
+            webSocketPublicSpot.MessageReceived += WebSocketPublic_MessageReceivedSpot;
+            webSocketPublicSpot.Closed += WebSocketPublic_Closed;
+            webSocketPublicSpot.Error += WebSocketPublic_Error;
+            webSocketPublicSpot.Opened += WebSocketPublic_Opened;
+
+            if (webSocketPublicSpot.State != WebSocketState.Open)
+            {
+                webSocketPublicSpot.Open();
+            }
 
             return webSocketPublicSpot;
         }
@@ -1031,14 +1025,17 @@ namespace OsEngine.Market.Servers.Bybit
         private WebSocket CreateNewLinearPublicSocket()
         {
             WebSocket webSocketPublicLinear = new WebSocket(wsPublicUrl(Category.linear));
-            webSocketPublicLinear.EmitOnPing = true;
-            webSocketPublicLinear.SslConfiguration.EnabledSslProtocols = System.Security.Authentication.SslProtocols.None;
-            webSocketPublicLinear.OnOpen += WebSocketPublic_Opened;
-            webSocketPublicLinear.OnMessage += WebSocketPublic_MessageReceivedLinear;
-            webSocketPublicLinear.OnError += WebSocketPublic_Error;
-            webSocketPublicLinear.OnClose += WebSocketPublic_Opened;
+            webSocketPublicLinear.EnableAutoSendPing = true;
+            webSocketPublicLinear.AutoSendPingInterval = 10;
+            webSocketPublicLinear.MessageReceived += WebSocketPublic_MessageReceivedLinear;
+            webSocketPublicLinear.Closed += WebSocketPublic_Closed;
+            webSocketPublicLinear.Error += WebSocketPublic_Error;
+            webSocketPublicLinear.Opened += WebSocketPublic_Opened;
 
-            webSocketPublicLinear.Connect();
+            if (webSocketPublicLinear.State != WebSocketState.Open)
+            {
+                webSocketPublicLinear.Open();
+            }
 
             return webSocketPublicLinear;
         }
@@ -1050,19 +1047,20 @@ namespace OsEngine.Market.Servers.Bybit
                 if (concurrentQueueMessagePrivateWebSocket == null) concurrentQueueMessagePrivateWebSocket = new ConcurrentQueue<string>();
 
                 webSocketPrivate = new WebSocket(wsPrivateUrl);
-                webSocketPrivate.EmitOnPing = true;
-                webSocketPrivate.SslConfiguration.EnabledSslProtocols = System.Security.Authentication.SslProtocols.None;
-
-                webSocketPrivate.OnMessage += WebSocketPrivate_MessageReceived;
-                webSocketPrivate.OnClose += WebSocketPrivate_Closed;
-                webSocketPrivate.OnError += WebSocketPrivate_Error;
-                webSocketPrivate.OnOpen += WebSocketPrivate_Opened;
-
-                webSocketPrivate.Connect();
+                webSocketPrivate.EnableAutoSendPing = true;
+                webSocketPrivate.AutoSendPingInterval = 10;
+                webSocketPrivate.MessageReceived += WebSocketPrivate_MessageReceived;
+                webSocketPrivate.Closed += WebSocketPrivate_Closed;
+                webSocketPrivate.Error += WebSocketPrivate_Error;
+                webSocketPrivate.Opened += WebSocketPrivate_Opened;
+                if (webSocketPrivate.State != WebSocketState.Open)
+                {
+                    webSocketPrivate.Open();
+                }
             }
             catch (Exception ex)
             {
-                HandlerException(ex);
+                HandlerExeption(ex);
             }
         }
 
@@ -1083,7 +1081,7 @@ namespace OsEngine.Market.Servers.Bybit
             }
             catch (Exception ex)
             {
-                HandlerException(ex);
+                HandlerExeption(ex);
             }
         }
 
@@ -1105,7 +1103,7 @@ namespace OsEngine.Market.Servers.Bybit
             }
         }
 
-        private void WebSocketPrivate_Error(object sender, WebSocketSharp.ErrorEventArgs e)
+        private void WebSocketPrivate_Error(object sender, SuperSocket.ClientEngine.ErrorEventArgs e)
         {
             try
             {
@@ -1118,7 +1116,7 @@ namespace OsEngine.Market.Servers.Bybit
             }
             catch (Exception ex)
             {
-                HandlerException(ex);
+                HandlerExeption(ex);
             }
         }
 
@@ -1130,11 +1128,11 @@ namespace OsEngine.Market.Servers.Bybit
             }
             catch (Exception ex)
             {
-                HandlerException(ex);
+                HandlerExeption(ex);
             }
         }
 
-        private void WebSocketPrivate_MessageReceived(object sender, MessageEventArgs e)
+        private void WebSocketPrivate_MessageReceived(object sender, MessageReceivedEventArgs e)
         {
             if(ServerStatus != ServerConnectStatus.Connect)
             {
@@ -1143,11 +1141,11 @@ namespace OsEngine.Market.Servers.Bybit
 
             if (concurrentQueueMessagePrivateWebSocket != null)
             {
-                concurrentQueueMessagePrivateWebSocket?.Enqueue(e.Data);
+                concurrentQueueMessagePrivateWebSocket?.Enqueue(e.Message);
             }
         }
 
-        private void WebSocketPublic_MessageReceivedSpot(object sender, MessageEventArgs e)
+        private void WebSocketPublic_MessageReceivedSpot(object sender, MessageReceivedEventArgs e)
         {
             if (ServerStatus != ServerConnectStatus.Connect)
             {
@@ -1156,11 +1154,11 @@ namespace OsEngine.Market.Servers.Bybit
 
             if (concurrentQueueMessagePublicWebSocket != null)
             {
-                concurrentQueueMessagePublicWebSocket?.Enqueue(e.Data +".SPOT");
+                concurrentQueueMessagePublicWebSocket?.Enqueue(e.Message+".SPOT");
             }
         }
 
-        private void WebSocketPublic_MessageReceivedLinear(object sender, MessageEventArgs e)
+        private void WebSocketPublic_MessageReceivedLinear(object sender, MessageReceivedEventArgs e)
         {
             if (ServerStatus != ServerConnectStatus.Connect)
             {
@@ -1169,7 +1167,7 @@ namespace OsEngine.Market.Servers.Bybit
 
             if (concurrentQueueMessagePublicWebSocket != null)
             {
-                concurrentQueueMessagePublicWebSocket?.Enqueue(e.Data);
+                concurrentQueueMessagePublicWebSocket?.Enqueue(e.Message);
             }
         }
 
@@ -1181,14 +1179,14 @@ namespace OsEngine.Market.Servers.Bybit
             }
             catch (Exception ex)
             {
-                HandlerException(ex);
+                HandlerExeption(ex);
             }
 
         }
 
         DateTime SendLogMessageTime = DateTime.Now;
 
-        private void WebSocketPublic_Error(object sender, WebSocketSharp.ErrorEventArgs e)
+        private void WebSocketPublic_Error(object sender, SuperSocket.ClientEngine.ErrorEventArgs e)
         {
             try
             {
@@ -1201,7 +1199,7 @@ namespace OsEngine.Market.Servers.Bybit
             }
             catch (Exception ex)
             {
-                HandlerException(ex);
+                HandlerExeption(ex);
             }
 
 
@@ -1239,7 +1237,7 @@ namespace OsEngine.Market.Servers.Bybit
                     for(int i = 0;i < _webSocketPublicSpot.Count;i++)
                     {
                         WebSocket webSocketPublicSpot = _webSocketPublicSpot[i];
-                        if (webSocketPublicSpot != null && webSocketPublicSpot?.ReadyState == WebSocketState.Open)
+                        if (webSocketPublicSpot != null && webSocketPublicSpot?.State == WebSocketState.Open)
                         {
                             webSocketPublicSpot?.Send("{\"req_id\": \"OsEngine\", \"op\": \"ping\"}");
                         }
@@ -1249,20 +1247,20 @@ namespace OsEngine.Market.Servers.Bybit
                     {
                         WebSocket webSocketPublicLinear = _webSocketPublicLinear[i];
 
-                        if (webSocketPublicLinear != null && webSocketPublicLinear?.ReadyState == WebSocketState.Open)
+                        if (webSocketPublicLinear != null && webSocketPublicLinear?.State == WebSocketState.Open)
                         {
                             webSocketPublicLinear?.Send("{\"req_id\": \"OsEngine\", \"op\": \"ping\"}");
                         }
                     }
 
-                    if (webSocketPrivate != null && webSocketPrivate?.ReadyState == WebSocketState.Open)
+                    if (webSocketPrivate != null && webSocketPrivate?.State == WebSocketState.Open)
                     {
                         webSocketPrivate?.Send("{\"req_id\": \"OsEngine\", \"op\": \"ping\"}");
                     }
                 }
                 catch (Exception ex)
                 {
-                    HandlerException(ex);
+                    HandlerExeption(ex);
                 }
             }
         }
@@ -1274,23 +1272,23 @@ namespace OsEngine.Market.Servers.Bybit
             {
                 try
                 {
-                    if (webSocketPrivate.ReadyState == WebSocketState.Open)
+                    if (webSocketPrivate?.State == WebSocketState.Open)
                     {
                         // отписка от потока, unsubscribe
-                        webSocketPrivate.Send("{\"req_id\": \"order_1\", \"op\": \"unsubscribe\",\"args\": [\"order\"]}");
-                        webSocketPrivate.Send("{\"req_id\": \"ticketInfo_1\", \"op\": \"unsubscribe\", \"args\": [ \"ticketInfo\"]}");
+                        webSocketPrivate?.Send("{\"req_id\": \"order_1\", \"op\": \"unsubscribe\",\"args\": [\"order\"]}");
+                        webSocketPrivate?.Send("{\"req_id\": \"ticketInfo_1\", \"op\": \"unsubscribe\", \"args\": [ \"ticketInfo\"]}");
+                        webSocketPrivate?.Close();
                     }
-                    webSocketPrivate.OnMessage -= WebSocketPrivate_MessageReceived;
-                    webSocketPrivate.OnClose -= WebSocketPrivate_Closed;
-                    webSocketPrivate.OnError -= WebSocketPrivate_Error;
-                    webSocketPrivate.OnOpen -= WebSocketPrivate_Opened;
-
-                    webSocketPrivate.CloseAsync();
+                    webSocketPrivate.MessageReceived -= WebSocketPrivate_MessageReceived;
+                    webSocketPrivate.Closed -= WebSocketPrivate_Closed;
+                    webSocketPrivate.Error -= WebSocketPrivate_Error;
+                    webSocketPrivate.Opened -= WebSocketPrivate_Opened;
+                    webSocketPrivate?.Dispose();
                     webSocketPrivate = null;
                 }
                 catch (Exception ex)
                 {
-                    HandlerException(ex);
+                    HandlerExeption(ex);
                 }
             }
             webSocketPrivate = null;
@@ -1305,14 +1303,14 @@ namespace OsEngine.Market.Servers.Bybit
                 {
                     WebSocket webSocketPublicSpot = _webSocketPublicSpot[i];
 
-                    webSocketPublicSpot.OnOpen -= WebSocketPublic_Opened;
-                    webSocketPublicSpot.OnMessage -= WebSocketPublic_MessageReceivedSpot;
-                    webSocketPublicSpot.OnError -= WebSocketPublic_Error;
-                    webSocketPublicSpot.OnClose -= WebSocketPublic_Opened;
+                    webSocketPublicSpot.MessageReceived -= WebSocketPublic_MessageReceivedSpot;
+                    webSocketPublicSpot.Closed -= WebSocketPublic_Closed;
+                    webSocketPublicSpot.Error -= WebSocketPublic_Error;
+                    webSocketPublicSpot.Opened -= WebSocketPublic_Opened;
 
                     try
                     {
-                        if (webSocketPublicSpot != null && webSocketPublicSpot?.ReadyState == WebSocketState.Open)
+                        if (webSocketPublicSpot != null && webSocketPublicSpot?.State == WebSocketState.Open)
                         {
                             for (int i2 = 0; i2 < SubscribeSecuritySpot.Count; i2++)
                             {
@@ -1324,19 +1322,20 @@ namespace OsEngine.Market.Servers.Bybit
                     }
                     catch (Exception ex)
                     {
-                        HandlerException(ex);
+                        HandlerExeption(ex);
                     }
 
-                    if (webSocketPublicSpot.ReadyState == WebSocketState.Open)
+                    if (webSocketPublicSpot?.State == WebSocketState.Open)
                     {
-                        webSocketPublicSpot.CloseAsync();
+                        webSocketPublicSpot?.Close();
                     }
+                    webSocketPublicSpot?.Dispose();
                     webSocketPublicSpot = null;
                 }
             }
             catch (Exception ex)
             {
-                HandlerException(ex);
+                HandlerExeption(ex);
             }
 
             _webSocketPublicSpot.Clear();
@@ -1346,14 +1345,14 @@ namespace OsEngine.Market.Servers.Bybit
                 for (int i = 0; i < _webSocketPublicLinear.Count; i++)
                 {
                     WebSocket webSocketPublicLinear = _webSocketPublicLinear[i];
-                    webSocketPublicLinear.OnOpen -= WebSocketPublic_Opened;
-                    webSocketPublicLinear.OnMessage -= WebSocketPublic_MessageReceivedLinear;
-                    webSocketPublicLinear.OnError -= WebSocketPublic_Error;
-                    webSocketPublicLinear.OnClose -= WebSocketPublic_Opened;
+                    webSocketPublicLinear.MessageReceived -= WebSocketPublic_MessageReceivedLinear;
+                    webSocketPublicLinear.Closed -= WebSocketPublic_Closed;
+                    webSocketPublicLinear.Error -= WebSocketPublic_Error;
+                    webSocketPublicLinear.Opened -= WebSocketPublic_Opened;
 
                     try
                     {
-                        if (webSocketPublicLinear != null && webSocketPublicLinear?.ReadyState == WebSocketState.Open)
+                        if (webSocketPublicLinear != null && webSocketPublicLinear?.State == WebSocketState.Open)
                         {
                             for (int i2 = 0; i2 < SubscribeSecurityLinear.Count; i2++)
                             {
@@ -1365,20 +1364,21 @@ namespace OsEngine.Market.Servers.Bybit
                     }
                     catch (Exception ex)
                     {
-                        HandlerException(ex);
+                        HandlerExeption(ex);
                     }
 
-                    if (webSocketPublicLinear.ReadyState == WebSocketState.Open)
+                    if (webSocketPublicLinear?.State == WebSocketState.Open)
                     {
-                        webSocketPublicLinear.CloseAsync();
+                        webSocketPublicLinear?.Close();
                     }
 
+                    webSocketPublicLinear?.Dispose();
                     webSocketPublicLinear = null;
                 }
             }
             catch (Exception ex)
             {
-                HandlerException(ex);
+                HandlerExeption(ex);
             }
 
             _webSocketPublicLinear.Clear();
@@ -1419,7 +1419,7 @@ namespace OsEngine.Market.Servers.Bybit
 
                     WebSocket webSocketPublicSpot = _webSocketPublicSpot[_webSocketPublicSpot.Count - 1];
 
-                    if(webSocketPublicSpot.ReadyState == WebSocketState.Open 
+                    if(webSocketPublicSpot.State == WebSocketState.Open 
                         && SubscribeSecuritySpot.Count != 0
                         && SubscribeSecuritySpot.Count % 50 == 0)
                     {
@@ -1427,7 +1427,7 @@ namespace OsEngine.Market.Servers.Bybit
                         WebSocket newSocket = CreateNewSpotPublicSocket();
 
                         DateTime timeEnd = DateTime.Now.AddSeconds(10);
-                        while(newSocket.ReadyState != WebSocketState.Open)
+                        while(newSocket.State != WebSocketState.Open)
                         {
                             Thread.Sleep(1000);
 
@@ -1437,7 +1437,7 @@ namespace OsEngine.Market.Servers.Bybit
                             }
                         }
 
-                        if(newSocket.ReadyState == WebSocketState.Open)
+                        if(newSocket.State == WebSocketState.Open)
                         {
                             _webSocketPublicSpot.Add(newSocket);
                             webSocketPublicSpot = newSocket;
@@ -1465,7 +1465,7 @@ namespace OsEngine.Market.Servers.Bybit
 
                     WebSocket webSocketPublicLinear = _webSocketPublicLinear[_webSocketPublicLinear.Count - 1];
 
-                    if (webSocketPublicLinear.ReadyState == WebSocketState.Open
+                    if (webSocketPublicLinear.State == WebSocketState.Open
                         && SubscribeSecurityLinear.Count != 0
                         && SubscribeSecurityLinear.Count % 50 == 0)
                     {
@@ -1473,7 +1473,7 @@ namespace OsEngine.Market.Servers.Bybit
                         WebSocket newSocket = CreateNewLinearPublicSocket();
 
                         DateTime timeEnd = DateTime.Now.AddSeconds(10);
-                        while (newSocket.ReadyState != WebSocketState.Open)
+                        while (newSocket.State != WebSocketState.Open)
                         {
                             Thread.Sleep(1000);
 
@@ -1483,7 +1483,7 @@ namespace OsEngine.Market.Servers.Bybit
                             }
                         }
 
-                        if (newSocket.ReadyState == WebSocketState.Open)
+                        if (newSocket.State == WebSocketState.Open)
                         {
                             _webSocketPublicLinear.Add(newSocket);
                             webSocketPublicLinear = newSocket;
@@ -1492,7 +1492,7 @@ namespace OsEngine.Market.Servers.Bybit
                     }
 
                     if (webSocketPublicLinear != null
-                        && webSocketPublicLinear?.ReadyState == WebSocketState.Open)
+                        && webSocketPublicLinear?.State == WebSocketState.Open)
                     {
                         if (SubscribeSecurityLinear.Exists(s => s == security.Name) == true)
                         {
@@ -1513,7 +1513,7 @@ namespace OsEngine.Market.Servers.Bybit
             }
             catch (Exception ex)
             {
-                HandlerException(ex);
+                HandlerExeption(ex);
             }
         }
 
@@ -1578,7 +1578,7 @@ namespace OsEngine.Market.Servers.Bybit
 
                             if(category == Category.spot)
                             {
-                                _concurrentQueueMessageOrderBookSpot?.Enqueue(_message);
+                                _concurrentQueueMessageOrderBookSpot.Enqueue(_message);
                             }
                             else if (category == Category.linear)
                             {
@@ -1614,7 +1614,7 @@ namespace OsEngine.Market.Servers.Bybit
                 catch (Exception ex)
                 {
                     Thread.Sleep(3000);
-                    HandlerException(ex);
+                    HandlerExeption(ex);
                 }
             }
         }
@@ -1678,7 +1678,7 @@ namespace OsEngine.Market.Servers.Bybit
                 catch (Exception ex)
                 {
                     Thread.Sleep(3000);
-                    HandlerException(ex);
+                    HandlerExeption(ex);
                 }
             }
         }
@@ -1728,7 +1728,7 @@ namespace OsEngine.Market.Servers.Bybit
             }
             catch (Exception ex)
             {
-                HandlerException(ex);
+                HandlerExeption(ex);
             }
         }
         
@@ -1794,7 +1794,7 @@ namespace OsEngine.Market.Servers.Bybit
             }
             catch (Exception ex)
             {
-                HandlerException(ex);
+                HandlerExeption(ex);
             }
         }
       
@@ -1836,7 +1836,7 @@ namespace OsEngine.Market.Servers.Bybit
 
                     UpdateOrderBook(message, response, category);
 
-                    while(_concurrentQueueMessageOrderBookSpot?.Count > 10000)
+                    while(_concurrentQueueMessageOrderBookSpot.Count > 500)
                     {
                         _concurrentQueueMessageOrderBookSpot.TryDequeue(out _message);
                     }
@@ -1844,7 +1844,7 @@ namespace OsEngine.Market.Servers.Bybit
                 catch (Exception ex)
                 {
                     Thread.Sleep(5000);
-                    HandlerException(ex);
+                    HandlerExeption(ex);
                 }
             }
         }
@@ -1883,7 +1883,7 @@ namespace OsEngine.Market.Servers.Bybit
 
                     UpdateOrderBook(message, response, category);
 
-                    while (_concurrentQueueMessageOrderBookLinear.Count > 10000)
+                    while (_concurrentQueueMessageOrderBookLinear.Count > 500)
                     {
                         _concurrentQueueMessageOrderBookLinear.TryDequeue(out message);
                     }
@@ -1891,7 +1891,7 @@ namespace OsEngine.Market.Servers.Bybit
                 catch (Exception ex)
                 {
                     Thread.Sleep(5000);
-                    HandlerException(ex);
+                    HandlerExeption(ex);
                 }
             }
         }
@@ -2106,7 +2106,7 @@ namespace OsEngine.Market.Servers.Bybit
                 catch (Exception ex)
                 {
                     Thread.Sleep(5000);
-                    HandlerException(ex);
+                    HandlerExeption(ex);
                 }
             }
         }
@@ -2143,7 +2143,7 @@ namespace OsEngine.Market.Servers.Bybit
                 catch (Exception ex)
                 {
                     Thread.Sleep(5000);
-                    HandlerException(ex);
+                    HandlerExeption(ex);
                 }
             }
         }
@@ -2266,7 +2266,7 @@ namespace OsEngine.Market.Servers.Bybit
             }
             catch (Exception ex)
             {
-                HandlerException(ex);
+                HandlerExeption(ex);
             }
          
         }
@@ -2858,7 +2858,7 @@ namespace OsEngine.Market.Servers.Bybit
             }
             catch (Exception ex)
             {
-                HandlerException(ex);
+                HandlerExeption(ex);
                 return null;
             }
 
@@ -2884,7 +2884,7 @@ namespace OsEngine.Market.Servers.Bybit
             }
             catch (Exception ex)
             {
-                HandlerException(ex);
+                HandlerExeption(ex);
                 return false;
             }
             return true;
@@ -2963,7 +2963,7 @@ namespace OsEngine.Market.Servers.Bybit
             }
             catch (Exception ex)
             {
-                HandlerException(ex);
+                HandlerExeption(ex);
 
                 return null;
             }
@@ -3013,7 +3013,7 @@ namespace OsEngine.Market.Servers.Bybit
             }
             catch (Exception ex)
             {
-                HandlerException(ex);
+                HandlerExeption(ex);
                 return null; 
             }
         }
@@ -3064,7 +3064,7 @@ namespace OsEngine.Market.Servers.Bybit
                     }
                 catch (Exception ex)
                 {
-                    HandlerException(ex);
+                    HandlerExeption(ex);
                 }
                 return DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
             }
@@ -3106,7 +3106,7 @@ namespace OsEngine.Market.Servers.Bybit
             LogMessageEvent?.Invoke(message, messageType);
         }
 
-        private void HandlerException(Exception exception, [CallerMemberName] string caller = "")
+        private void HandlerExeption(Exception exception, [CallerMemberName] string caller = "")
         {
             try
             {
