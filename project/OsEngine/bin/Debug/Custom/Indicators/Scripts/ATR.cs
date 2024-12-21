@@ -6,7 +6,7 @@ using OsEngine.Entity;
 namespace OsEngine.Indicators
 {
     [Indicator("ATR")]
-    public class ATR : Aindicator
+    class ATR : Aindicator
     {
         private IndicatorParameterInt _length;
 

@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 
+
 namespace OsEngine.Indicators
 {
     [Indicator("EaseOfMovement_Watcher")]
@@ -10,17 +11,20 @@ namespace OsEngine.Indicators
     {
         public IndicatorParameterInt _periodMA;
 
-        public IndicatorParameterBool _isUseStandardDeviation;
+        /// <summary>
+        ///_isUseStandartDeviation - use standard deviation
+        /// </summary>
+        public IndicatorParameterBool _isUseStandartDeviation;
 
         public IndicatorDataSeries _seriesEMVUp;
-
         public IndicatorDataSeries _seriesEMVDown;
-
         public IndicatorDataSeries _seriesEmvStDevUp;
-
         public IndicatorDataSeries _seriesEmvStDevDown;
-
         private IndicatorDataSeries _seriesEomRaw;
+        /// <summary>
+        /// initialization
+        /// </summary>
+        /// <param name="state">Indicator Configure</param>  
 
         public override void OnStateChange(IndicatorState state)
         {
@@ -28,7 +32,7 @@ namespace OsEngine.Indicators
             {
                 _periodMA = CreateParameterInt("Period MA", 10);
 
-                _isUseStandardDeviation = CreateParameterBool("is Use Standard Deviation of EOM", true);
+                _isUseStandartDeviation = CreateParameterBool("is Use Standart Deviation of EOM", true);
 
                 _seriesEMVUp = CreateSeries("Series EaseOfMovement Up", Color.DarkGreen, IndicatorChartPaintType.Column, true);
                 _seriesEMVDown = CreateSeries("Series EaseOfMovement Down", Color.DarkRed, IndicatorChartPaintType.Column, true);
@@ -40,20 +44,25 @@ namespace OsEngine.Indicators
             }
             else if (state == IndicatorState.Dispose)
             {
-                if (_standardDeviationList != null)
+                if (standardDeviationList != null)
                 {
-                    _standardDeviationList.Clear();
-                    _standardDeviationList = null;
+                    standardDeviationList.Clear();
+                    standardDeviationList = null;
                 }
             }
             
         }
 
+        /// <summary>
+        /// an iterator method to fill the indicator
+        /// </summary>
+        /// <param name="candles">collection candles</param>
+        /// <param name="index">index to use in the collection of candles</param>
         public override void OnProcess(List<Candle> candles, int index)
         {
-            if (_standardDeviationList == null || index == 1)
+            if (standardDeviationList == null || index == 1)
             {
-                _standardDeviationList = new List<decimal>();
+                standardDeviationList = new List<decimal>();
             }
             
             if (_periodMA.ValueInt > index + 1)
@@ -61,36 +70,41 @@ namespace OsEngine.Indicators
                 return;
             }
 
-            _emvSMA = CalcEmv(candles, index);
+            emvSMA = CalcEmv(candles, index);
 
-            if (_emvSMA > 0)
+            if (emvSMA > 0)
             {
-                _seriesEMVUp.Values[index] = Math.Round(_emvSMA, 5);
+                _seriesEMVUp.Values[index] = Math.Round(emvSMA, 5);
             }
-            else if (_emvSMA < 0)
+            else if (emvSMA < 0)
             {
-                _seriesEMVDown.Values[index] = Math.Round(_emvSMA, 5);
+                _seriesEMVDown.Values[index] = Math.Round(emvSMA, 5);
             }
 
-            if (_isUseStandardDeviation.ValueBool)
+            if (_isUseStandartDeviation.ValueBool)
             {
-                AddToListStandardDev();
-                if (_standardDeviationList.Count > 1)
+                AddToListStandartDev();
+                if (standardDeviationList.Count > 1)
                 {
-                    CalcStandardDeviation(_standardDeviationList);
-                    _seriesEmvStDevUp.Values[index] = _emvStDev > 0 ? Math.Round(_emvStDev, 5) : Math.Round(-_emvStDev, 5);
-                    _seriesEmvStDevDown.Values[index] = _emvStDev < 0 ? Math.Round(_emvStDev, 5) : Math.Round(-_emvStDev, 5);
+                    CalcStandardDeviation(standardDeviationList);
+                    _seriesEmvStDevUp.Values[index] = emvStDev > 0 ? Math.Round(emvStDev, 5) : Math.Round(-emvStDev, 5);
+                    _seriesEmvStDevDown.Values[index] = emvStDev < 0 ? Math.Round(emvStDev, 5) : Math.Round(-emvStDev, 5);
                 }
             }
         }
 
-        private decimal _emvSMA;
+        #region 
+        decimal emvSMA;
 
-        private List<decimal> _standardDeviationList;
-
-        private decimal _emvStDev;
-
-        private decimal CalcEmv(List<Candle> candles, int index)
+        List<decimal> standardDeviationList;
+        decimal emvStDev;
+        #endregion
+        /// <summary>
+        /// Calculate Emv
+        /// </summary>
+        /// <param name="candles">collection candles</param>
+        /// <param name="index">index to use in the collection of candles</param>
+        public decimal CalcEmv(List<Candle> candles, int index)
         {
             decimal distMoved = DistanceMoved(candles, index);
             decimal boxRatio = GetBoxRatio(candles, index);
@@ -104,9 +118,9 @@ namespace OsEngine.Indicators
                 _seriesEomRaw.Values[index] = distMoved / boxRatio;
             }
 
-            _emvSMA = GetSma(_seriesEomRaw.Values, _periodMA.ValueInt, index);
+            emvSMA = GetSma(_seriesEomRaw.Values, _periodMA.ValueInt, index);
 
-            return _emvSMA;
+            return emvSMA;
         }
 
         private decimal GetBoxRatio(List<Candle> candles, int index)
@@ -139,6 +153,9 @@ namespace OsEngine.Indicators
             return (high + low) / 2 - (highMinOne + lowMinOne) / 2;
         }
 
+        /// <summary>
+        /// Simple Moving Avg. of EaseOfMovement_Oscillator Values.
+        /// </summary>
         private decimal GetSma(List<decimal> values, int length, int index)
         {
             decimal result = 0;
@@ -154,7 +171,11 @@ namespace OsEngine.Indicators
             return result / lengthReal; ;
         }
 
-        private void CalcStandardDeviation(List<decimal> standardDeviationList)
+        /// <summary>
+        ///calculate standard deviation
+        /// </summary>
+        /// <param name="standardDeviationList"></param>
+        public void CalcStandardDeviation(List<decimal> standardDeviationList)
         {
             decimal sd = 0;
             int length2;
@@ -185,13 +206,15 @@ namespace OsEngine.Indicators
                     sd += (decimal)g;
                 }
 
-                _emvStDev = (decimal)Math.Sqrt((double)sd / (length2 - 1)) * 2.5m;
+                emvStDev = (decimal)Math.Sqrt((double)sd / (length2 - 1)) * 2.5m;
             }
         }
-
-        private void AddToListStandardDev()
+        /// <summary>
+        /// add the StandardDev value to the collection for further calculations
+        /// </summary>
+        private void AddToListStandartDev()
         {
-            _standardDeviationList.Add(_emvSMA);
+            standardDeviationList.Add(emvSMA);
         }
     }
 }
