@@ -1318,6 +1318,7 @@
     <Compile Include="Robots\TechSamples\FakeOutExample.cs" />
     <Compile Include="Robots\AutoTestBots\TestBotTradesInCandlesTest.cs" />
     <Compile Include="Robots\TechSamples\TradeLineExample.cs" />
+    <Compile Include="Robots\SDKThreeSoldierAdaptive.cs" />
     <Compile Include="Robots\Trend\EnvelopTrend.cs" />
     <Compile Include="Robots\Trend\MomentumMacd.cs" />
     <Compile Include="Robots\MarketMaker\PairTraderSpreadSma.cs" />
