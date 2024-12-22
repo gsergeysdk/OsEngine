@@ -308,15 +308,9 @@ namespace OsEngine.Robots.MyBots
             if (ordersCount < maxProfitOrdersCount.ValueInt) // доливка по тренду с прибыльными сделками
             {
                 if (tradeTypeBuy && currentTradeTypeBuy && lastPrice >= orderMaxOpenPrice * (1.0m + stepProfitOrdersPercent.ValueDecimal / 100))
-                {
                     _tab1.BuyAtLimit(GetVolume(_tab1), _tab1.PriceBestBid - slippage);
-                    //breakevenStopPercent = stepProfitOrdersPercent.ValueDecimal;
-                }
                 if (tradeTypeSell && currentTradeTypeSell && lastPrice <= orderMinOpenPrice * (1.0m - stepProfitOrdersPercent.ValueDecimal / 100))
-                {
                     _tab1.SellAtLimit(GetVolume(_tab1), _tab1.PriceBestAsk + slippage);
-                    //breakevenStopPercent = stepProfitOrdersPercent.ValueDecimal;
-                }
             }
         }
 
@@ -329,7 +323,6 @@ namespace OsEngine.Robots.MyBots
         }
 
         // Logic close position
-        decimal breakevenStopPercent = 0;
         private void LogicClosePosition(List<Candle> candles) 
         {
             decimal slippage = Slippage.ValueDecimal * _tab1.Security.PriceStep;
@@ -356,11 +349,8 @@ namespace OsEngine.Robots.MyBots
                         decimal stopPrice = 0m;
                         decimal takePrice = 0m;
                         decimal trailPrice = lastPrice * (1m - trailingStopPercent.ValueDecimal / 100);// TrailStopPrice;
-                        decimal breakevenPrice = lastPrice * (1m - breakevenStopPercent / 100);
                         if (trailingStopPercent.ValueDecimal > 0 && trailPrice >= position.EntryPrice)
                             stopPrice = Math.Max(position.StopOrderPrice, trailPrice);
-                        else if (breakevenStopPercent > 0 && trailPrice >= position.EntryPrice && position.StopOrderPrice < position.EntryPrice)
-                            stopPrice = position.EntryPrice;
                         else if (stopLossPercent.ValueDecimal > 0)
                             // стоп лосс в сетке по последнему ордеру
                             stopPrice = (ordersCount > 1 ? orderMaxOpenPrice : position.EntryPrice) * ( 1m - stopLossPercent.ValueDecimal / 100);
@@ -391,12 +381,8 @@ namespace OsEngine.Robots.MyBots
                         decimal stopPrice = 0m;
                         decimal takePrice = 0m;
                         decimal trailPrice = lastPrice * (1m + trailingStopPercent.ValueDecimal / 100);// TrailStopPrice;
-                        decimal breakevenPrice = lastPrice * (1m + breakevenStopPercent / 100);
                         if (trailingStopPercent.ValueDecimal > 0 && trailPrice <= position.EntryPrice)
                             stopPrice = Math.Min(position.StopOrderPrice, trailPrice);
-                        else if (breakevenStopPercent > 0 && trailPrice <= position.EntryPrice &&
-                            (position.StopOrderPrice == 0 || position.StopOrderPrice > position.EntryPrice))
-                            stopPrice = position.EntryPrice;
                         else if (stopLossPercent.ValueDecimal > 0)
                             // стоп лосс в сетке по последнему ордеру
                             stopPrice = (ordersCount > 1 ? orderMinOpenPrice : position.EntryPrice) * (1m + stopLossPercent.ValueDecimal / 100);
@@ -417,7 +403,6 @@ namespace OsEngine.Robots.MyBots
                     }
                 }
             }
-            breakevenStopPercent = 0;
         }
 
         // Method for calculating the volume of entry into a position
