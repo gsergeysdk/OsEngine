@@ -69,7 +69,7 @@ namespace OsEngine.Robots.MyBots
 
         public override string GetNameStrategyType()
         {
-            return "ThreeSoldierAdaptive";
+            return "SDKThreeSoldierAdaptive";
         }
 
         public override void ShowIndividualSettingsDialog()
