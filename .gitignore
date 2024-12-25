@@ -288,3 +288,14 @@ __pycache__/
 # tools/**
 # !tools/packages.config
 /copy_to_trade.cmd
+/project/OsEngine/bin/Debug/Google.Protobuf.dll
+/project/OsEngine/bin/Debug/Grpc.Core.Api.dll
+/project/OsEngine/bin/Debug/OsEngine.exe
+/project/OsEngine/bin/Debug/OsEngine.exe.config
+/project/OsEngine/bin/Debug/System.Buffers.dll
+/project/OsEngine/bin/Debug/System.Memory.dll
+/project/OsEngine/bin/Debug/System.Numerics.Vectors.dll
+/project/OsEngine/bin/Debug/System.Runtime.CompilerServices.Unsafe.dll
+/project/OsEngine/bin/Debug/System.Text.Encoding.CodePages.dll
+/project/OsEngine/bin/Debug/System.Threading.Channels.dll
+/project/OsEngine/bin/Debug/System.Threading.Tasks.Extensions.dll
