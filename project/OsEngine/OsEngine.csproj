@@ -1230,6 +1230,7 @@
     <Compile Include="Robots\Screeners\PinBarScreener.cs" />
     <Compile Include="Robots\SDKCryptoTrend.cs" />
     <Compile Include="Robots\SDKTest.cs" />
+    <Compile Include="Robots\SDKThreeSoldierScreener.cs" />
     <Compile Include="Robots\TechSamples\AllSourcesInOneSample.cs" />
     <Compile Include="Robots\TechSamples\BlockIndicatorsSample.cs" />
     <Compile Include="Robots\TechSamples\CandlesLoggingSample.cs" />
@@ -1253,7 +1254,7 @@
     <Compile Include="Robots\TechSamples\FakeOutExample.cs" />
     <Compile Include="Robots\AutoTestBots\TestBotTradesInCandlesTest.cs" />
     <Compile Include="Robots\TechSamples\TradeLineExample.cs" />
-    <Compile Include="Robots\SDKThreeSoldierAdaptive.cs" />
+    <Compile Include="Robots\SDKThreeSoldier.cs" />
     <Compile Include="Robots\Trend\EnvelopTrend.cs" />
     <Compile Include="Robots\Trend\MomentumMacd.cs" />
     <Compile Include="Robots\MarketMaker\PairTraderSpreadSma.cs" />
