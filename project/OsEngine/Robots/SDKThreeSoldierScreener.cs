@@ -36,7 +36,6 @@ namespace OsEngine.Robots.SoldiersScreener
             DaysVolatilityAdaptive = CreateParameter("Days volatility adaptive", 1, 0, 20, 1);
             HeightSoldiersVolaPecrent = CreateParameter("Height soldiers volatility percent", 5, 0, 20, 1m);
             MinHeightOneSoldiersVolaPecrent = CreateParameter("Min height one soldier volatility percent", 1, 0, 20, 1m);
-            MaxHeightSoldiersK = CreateParameter("Max height soldiers koefficient", 2, 1, 5, 1m);
             SmaFilterIsOn = CreateParameter("Sma filter is on", true);
             SmaFilterLen = CreateParameter("Sma filter Len", 100, 100, 300, 10);
 
@@ -78,7 +77,6 @@ namespace OsEngine.Robots.SoldiersScreener
         public StrategyParameterInt DaysVolatilityAdaptive;
         public StrategyParameterDecimal HeightSoldiersVolaPecrent;
         public StrategyParameterDecimal MinHeightOneSoldiersVolaPecrent;
-        public StrategyParameterDecimal MaxHeightSoldiersK;
 
         public StrategyParameterBool SmaFilterIsOn;
         public StrategyParameterInt SmaFilterLen;
@@ -223,7 +221,6 @@ namespace OsEngine.Robots.SoldiersScreener
             decimal oneSoldiersHeight = volaPercentSma * (MinHeightOneSoldiersVolaPecrent.ValueDecimal / 100);
 
             settings.HeightSoldiers = allSoldiersHeight;
-            settings.MaxHeightSoldiers = allSoldiersHeight * MaxHeightSoldiersK.ValueDecimal;
             settings.MinHeightOneSoldier = oneSoldiersHeight;
             settings.LastUpdateTime = candles[candles.Count - 1].TimeStart;
         }
@@ -320,9 +317,6 @@ namespace OsEngine.Robots.SoldiersScreener
 
             if (Math.Abs(candles[candles.Count - 3].Open - candles[candles.Count - 1].Close)
                 / (candles[candles.Count - 1].Close / 100) < settings.HeightSoldiers)
-                return;
-            if (Math.Abs(candles[candles.Count - 3].Open - candles[candles.Count - 1].Close)
-                / (candles[candles.Count - 1].Close / 100) > settings.MaxHeightSoldiers)
                 return;
             if (Math.Abs(candles[candles.Count - 3].Open - candles[candles.Count - 3].Close)
                 / (candles[candles.Count - 3].Close / 100) < settings.MinHeightOneSoldier)
@@ -563,7 +557,6 @@ namespace OsEngine.Robots.SoldiersScreener
         public string SecClass;
 
         public decimal HeightSoldiers;
-        public decimal MaxHeightSoldiers;
         public decimal MinHeightOneSoldier;
         public DateTime LastUpdateTime;
 
@@ -576,7 +569,6 @@ namespace OsEngine.Robots.SoldiersScreener
             result += HeightSoldiers + "%";
             result += MinHeightOneSoldier + "%";
             result += LastUpdateTime.ToString(CultureInfo.InvariantCulture) + "%";
-            result += MaxHeightSoldiers + "%";
 
             return result;
         }
@@ -590,7 +582,6 @@ namespace OsEngine.Robots.SoldiersScreener
             HeightSoldiers = array[2].ToDecimal();
             MinHeightOneSoldier = array[3].ToDecimal();
             LastUpdateTime = Convert.ToDateTime(array[4], CultureInfo.InvariantCulture);
-            MaxHeightSoldiers = array[5].ToDecimal();
         }
     }
 }
