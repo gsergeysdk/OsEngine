@@ -1265,6 +1265,8 @@
     <Compile Include="Robots\Screeners\BollingerMomentumScreener.cs" />
     <Compile Include="Robots\Screeners\PinBarScreener.cs" />
     <Compile Include="Robots\SDKCryptoTrend.cs" />
+    <Compile Include="Robots\SDKPriceChannelScreenerOnIndexVolatility.cs" />
+    <Compile Include="Robots\SDKPriceChannelTrendAtrFilterScreener.cs" />
     <Compile Include="Robots\SDKTest.cs" />
     <Compile Include="Robots\SDKThreeSoldierScreener.cs" />
     <Compile Include="Robots\TechSamples\AllSourcesInOneSample.cs" />
