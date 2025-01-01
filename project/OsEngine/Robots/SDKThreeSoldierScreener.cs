@@ -469,7 +469,7 @@ namespace OsEngine.Robots.SoldiersScreener
                     volume = Math.Round(volume, tab.Security.DecimalsVolume);
                 }
                 else // Tester or Optimizer
-                    volume = Math.Round(volume, 6);
+                    volume = Math.Round(volume / tab.Security.Lot, 6);
             }
             else if (VolumeType.ValueString == "Deposit percent")
             {
