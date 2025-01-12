@@ -620,10 +620,12 @@ namespace OsEngine.Robots.SDKRobots
                 }
 
                 decimal portfolioPrimeAsset = 0;
+                decimal portfolioPrimeAssetBlocked = 0;
 
                 if (TradeAssetInPortfolio.ValueString == "Prime")
                 {
                     portfolioPrimeAsset = myPortfolio.ValueCurrent;
+                    portfolioPrimeAssetBlocked = myPortfolio.ValueBlocked;
                 }
                 else
                 {
@@ -639,6 +641,7 @@ namespace OsEngine.Robots.SDKRobots
                         if (positionOnBoard[i].SecurityNameCode == TradeAssetInPortfolio.ValueString)
                         {
                             portfolioPrimeAsset = positionOnBoard[i].ValueCurrent;
+                            portfolioPrimeAssetBlocked = positionOnBoard[i].ValueBlocked;
                             break;
                         }
                     }
@@ -650,7 +653,7 @@ namespace OsEngine.Robots.SDKRobots
                     return 0;
                 }
 
-                decimal moneyOnPosition = portfolioPrimeAsset * (Volume.ValueDecimal / 100);
+                decimal moneyOnPosition = Math.Min(portfolioPrimeAsset * (Volume.ValueDecimal / 100), portfolioPrimeAsset - portfolioPrimeAssetBlocked);
 
                 decimal qty = moneyOnPosition / tab.PriceBestAsk / tab.Security.Lot;
 
