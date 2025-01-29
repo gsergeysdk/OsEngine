@@ -27,7 +27,8 @@ namespace OsEngine.Robots.SoldiersScreener
             MaxPositions = CreateParameter("Max positions", 5, 0, 20, 1);
             VolumeType = CreateParameter("Volume type", "Contracts", new[] { "Contracts", "Contract currency", "Deposit percent" });
             Volume = CreateParameter("Volume", 1, 1.0m, 50, 4);
-            TradeAssetInPortfolio = CreateParameter("Asset in portfolio", "Prime");
+            FullTradeAssetInPortfolio = CreateParameter("Full Asset in portfolio", "Prime");
+            TradeAssetInPortfolio = CreateParameter("Asset in portfolio (limit)", "Prime");
             Slippage = CreateParameter("Slippage %", 0, 0, 20, 1m);
             ProcHeightTake = CreateParameter("Profit % from height of pattern", 50m, 0, 20, 1m);
             ProcHeightStop = CreateParameter("Stop % from height of pattern", 20m, 0, 20, 1m);
@@ -73,6 +74,7 @@ namespace OsEngine.Robots.SoldiersScreener
         public StrategyParameterString VolumeType;
         public StrategyParameterDecimal Volume;
         public StrategyParameterString TradeAssetInPortfolio;
+        public StrategyParameterString FullTradeAssetInPortfolio;
 
         public StrategyParameterInt DaysVolatilityAdaptive;
         public StrategyParameterDecimal HeightSoldiersVolaPecrent;
@@ -483,14 +485,12 @@ namespace OsEngine.Robots.SoldiersScreener
                 }
 
                 decimal portfolioPrimeAsset = 0;
-                decimal portfolioPrimeAssetBlocked = 0;
+                decimal fullPortfolioPrimeAsset = 0;
 
+                if (FullTradeAssetInPortfolio.ValueString == "Prime")
+                    fullPortfolioPrimeAsset = myPortfolio.ValueCurrent;
                 if (TradeAssetInPortfolio.ValueString == "Prime")
-                {
                     portfolioPrimeAsset = myPortfolio.ValueCurrent;
-                    portfolioPrimeAssetBlocked = myPortfolio.ValueBlocked;
-                }
-                else
                 {
                     List<PositionOnBoard> positionOnBoard = myPortfolio.GetPositionOnBoard();
 
@@ -502,21 +502,19 @@ namespace OsEngine.Robots.SoldiersScreener
                     for (int i = 0; i < positionOnBoard.Count; i++)
                     {
                         if (positionOnBoard[i].SecurityNameCode == TradeAssetInPortfolio.ValueString)
-                        {
                             portfolioPrimeAsset = positionOnBoard[i].ValueCurrent;
-                            portfolioPrimeAssetBlocked = positionOnBoard[i].ValueBlocked;
-                            break;
-                        }
+                        if (positionOnBoard[i].SecurityNameCode == FullTradeAssetInPortfolio.ValueString)
+                            fullPortfolioPrimeAsset = positionOnBoard[i].ValueCurrent;
                     }
                 }
 
-                if (portfolioPrimeAsset == 0)
+                if (portfolioPrimeAsset == 0 || fullPortfolioPrimeAsset == 0)
                 {
                     SendNewLogMessage("Can`t found portfolio " + TradeAssetInPortfolio.ValueString, Logging.LogMessageType.Error);
                     return 0;
                 }
 
-                decimal moneyOnPosition = Math.Min(portfolioPrimeAsset * (Volume.ValueDecimal / 100), portfolioPrimeAsset - portfolioPrimeAssetBlocked);
+                decimal moneyOnPosition = Math.Min(fullPortfolioPrimeAsset * (Volume.ValueDecimal / 100), portfolioPrimeAsset);
 
                 decimal qty = moneyOnPosition / tab.PriceBestAsk / tab.Security.Lot;
 
