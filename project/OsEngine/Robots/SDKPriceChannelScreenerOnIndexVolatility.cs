@@ -48,6 +48,7 @@ namespace OsEngine.Robots.SDKRobots
         public StrategyParameterString VolumeType;
         public StrategyParameterDecimal Volume;
         public StrategyParameterString TradeAssetInPortfolio;
+        public StrategyParameterString FullTradeAssetInPortfolio;
 
         public StrategyParameterInt TopVolumeSecurities;
         public StrategyParameterInt TopCandlesLookBack;
@@ -72,7 +73,8 @@ namespace OsEngine.Robots.SDKRobots
             TimeEnd = CreateParameterTimeOfDay("End Trade Time", 18, 25, 0, 0);
             VolumeType = CreateParameter("Volume type", "Deposit percent", new[] { "Contracts", "Contract currency", "Deposit percent" });
             Volume = CreateParameter("Volume", 20, 1.0m, 50, 4);
-            TradeAssetInPortfolio = CreateParameter("Asset in portfolio", "Prime");
+            FullTradeAssetInPortfolio = CreateParameter("Full Asset in portfolio", "Prime");
+            TradeAssetInPortfolio = CreateParameter("Asset in portfolio (limit)", "Prime");
 
             PriceChannelLength = CreateParameter("Price channel length", 50, 10, 80, 3);
             AtrLength = CreateParameter("Atr length", 25, 10, 80, 3);
@@ -104,7 +106,11 @@ namespace OsEngine.Robots.SDKRobots
             _volatilityStagesOnIndex.ParametersDigit[0].Value = VolatilitySlowSmaLength.ValueInt;
             _volatilityStagesOnIndex.ParametersDigit[1].Value = VolatilityFastSmaLength.ValueInt;
             _volatilityStagesOnIndex.ParametersDigit[2].Value = VolatilityChannelDeviation.ValueDecimal;
-
+            IndicatorParameter awRegime = _volatilityStagesOnIndex.Parameters[0];
+            if (awRegime.Type == IndicatorParameterType.String)
+            {
+                ((IndicatorParameterString)awRegime).ValueString = "3";
+            }
             _volatilityStagesOnIndex.Save();
 
             _tabScreener.CreateCandleIndicator(1, "PriceChannel", new List<string>() { PriceChannelLength.ValueInt.ToString() }, "Prime");
@@ -620,14 +626,12 @@ namespace OsEngine.Robots.SDKRobots
                 }
 
                 decimal portfolioPrimeAsset = 0;
-                decimal portfolioPrimeAssetBlocked = 0;
+                decimal fullPortfolioPrimeAsset = 0;
 
+                if (FullTradeAssetInPortfolio.ValueString == "Prime")
+                    fullPortfolioPrimeAsset = myPortfolio.ValueCurrent;
                 if (TradeAssetInPortfolio.ValueString == "Prime")
-                {
                     portfolioPrimeAsset = myPortfolio.ValueCurrent;
-                    portfolioPrimeAssetBlocked = myPortfolio.ValueBlocked;
-                }
-                else
                 {
                     List<PositionOnBoard> positionOnBoard = myPortfolio.GetPositionOnBoard();
 
@@ -639,21 +643,19 @@ namespace OsEngine.Robots.SDKRobots
                     for (int i = 0; i < positionOnBoard.Count; i++)
                     {
                         if (positionOnBoard[i].SecurityNameCode == TradeAssetInPortfolio.ValueString)
-                        {
                             portfolioPrimeAsset = positionOnBoard[i].ValueCurrent;
-                            portfolioPrimeAssetBlocked = positionOnBoard[i].ValueBlocked;
-                            break;
-                        }
+                        if (positionOnBoard[i].SecurityNameCode == FullTradeAssetInPortfolio.ValueString)
+                            fullPortfolioPrimeAsset = positionOnBoard[i].ValueCurrent;
                     }
                 }
 
-                if (portfolioPrimeAsset == 0)
+                if (portfolioPrimeAsset == 0 || fullPortfolioPrimeAsset == 0)
                 {
                     SendNewLogMessage("Can`t found portfolio " + TradeAssetInPortfolio.ValueString, Logging.LogMessageType.Error);
                     return 0;
                 }
 
-                decimal moneyOnPosition = Math.Min(portfolioPrimeAsset * (Volume.ValueDecimal / 100), portfolioPrimeAsset - portfolioPrimeAssetBlocked);
+                decimal moneyOnPosition = Math.Min(fullPortfolioPrimeAsset * (Volume.ValueDecimal / 100), portfolioPrimeAsset);
 
                 decimal qty = moneyOnPosition / tab.PriceBestAsk / tab.Security.Lot;
 
