@@ -525,7 +525,9 @@ namespace OsEngine.Robots.SDKRobots
                     }
                 }
 
-                tab.BuyAtMarket(GetVolume(tab));
+                decimal volume = GetVolume(tab);
+                if (volume > 0)
+                    tab.BuyAtMarket(volume);
             }
 
             if (lastPrice < lastPcDown
@@ -553,8 +555,9 @@ namespace OsEngine.Robots.SDKRobots
                         return;
                     }
                 }
-
-                tab.SellAtMarket(GetVolume(tab));
+                decimal volume = GetVolume(tab);
+                if (volume > 0)
+                    tab.SellAtMarket(volume);
             }
         }
 
@@ -661,7 +664,10 @@ namespace OsEngine.Robots.SDKRobots
 
                 if (tab.StartProgram == StartProgram.IsOsTrader)
                 {
-                    qty = Math.Round(qty, tab.Security.DecimalsVolume);
+                    if (tab.Security.DecimalsVolume == 0)
+                        qty = (int)qty;
+                    else
+                        qty = Math.Round(qty, tab.Security.DecimalsVolume);
                 }
                 else
                 {
