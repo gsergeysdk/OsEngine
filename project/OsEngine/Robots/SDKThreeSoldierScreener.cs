@@ -344,7 +344,9 @@ namespace OsEngine.Robots.SoldiersScreener
                         if (smaValue < smaPrev)
                             return;
                     }
-                    tab.BuyAtLimit(GetVolume(tab), _lastPrice + _lastPrice * (Slippage.ValueDecimal / 100));
+                    decimal volume = GetVolume(tab);
+                    if (volume > 0)
+                        tab.BuyAtLimit(volume, _lastPrice + _lastPrice * (Slippage.ValueDecimal / 100));
                 }
             }
 
@@ -362,7 +364,9 @@ namespace OsEngine.Robots.SoldiersScreener
                         if (smaValue > smaPrev)
                             return;
                     }
-                    tab.SellAtLimit(GetVolume(tab), _lastPrice - _lastPrice * (Slippage.ValueDecimal / 100));
+                    decimal volume = GetVolume(tab);
+                    if (volume > 0)
+                        tab.SellAtLimit(volume, _lastPrice - _lastPrice * (Slippage.ValueDecimal / 100));
                 }
             }
             return;
@@ -520,7 +524,7 @@ namespace OsEngine.Robots.SoldiersScreener
 
                 if (tab.StartProgram == StartProgram.IsOsTrader)
                 {
-                    qty = Math.Round(qty, tab.Security.DecimalsVolume);
+                    qty = Math.Round(qty, tab.Security.DecimalsVolume, MidpointRounding.ToEven);
                 }
                 else
                 {
