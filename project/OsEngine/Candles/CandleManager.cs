@@ -204,7 +204,7 @@ namespace OsEngine.Entity
                         IServerPermission permission = ServerMaster.GetServerPermission(serverType);
 
                         if (permission != null &&
-                           permission.UseStandartCandlesStarter == true)
+                           permission.UseStandardCandlesStarter == true)
                         {
                             // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
                             // NEW STANDART CANDLE SERIES START 2024
@@ -337,30 +337,6 @@ namespace OsEngine.Entity
                             }
                             series.UpdateAllCandles();
                             series.IsStarted = true;
-                        }
-                        else if (serverType == ServerType.Transaq)
-                        {
-                            TransaqServer transaq = (TransaqServer)_server;
-
-                            if (series.CandleCreateMethodType != "Simple" ||
-                                series.TimeFrameSpan.TotalMinutes < 1)
-                            {
-                                List<Trade> allTrades = _server.GetAllTradesToSecurity(series.Security);
-
-                                if (allTrades is null)
-                                {
-                                    _server.GetTickDataToSecurity(series.Security.Name, series.Security.NameClass, DateTime.MinValue, DateTime.Now, DateTime.Now, false);
-                                    allTrades = _server.GetAllTradesToSecurity(series.Security);
-                                }
-
-                                series.PreLoad(allTrades);
-                                series.UpdateAllCandles();
-                                series.IsStarted = true;
-                            }
-                            else
-                            {
-                                transaq.GetCandleHistory(series);
-                            }
                         }
                         else if (serverType == ServerType.Exmo)
                         {

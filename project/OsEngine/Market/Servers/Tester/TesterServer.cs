@@ -1596,21 +1596,6 @@ namespace OsEngine.Market.Servers.Tester
                 NewOrderIncomeEvent(orderOnBoard);
             }
 
-            if (SecuritiesTester[0].DataType == SecurityTesterDataType.Tick)
-            {
-                SecurityTester security = SecuritiesTester.Find(tester => tester.Security.Name == order.SecurityNameCode);
-
-                decimal f = order.Price / security.LastTradeSeries[security.LastTradeSeries.Count - 1].Price;
-                if (f > 1.02m ||
-                    f < 0.98m)
-                {
-
-                }
-
-                //CheckOrdersInTickTest(orderOnBoard, security.LastTradeSeries[security.LastTradeSeries.Count - 1].Price, toMarket);
-
-            }
-
             if (orderOnBoard.IsStopOrProfit)
             {
                 SecurityTester security = GetMySecurity(order);
@@ -3899,6 +3884,13 @@ namespace OsEngine.Market.Servers.Tester
             }
         }
 
+        public bool SubscribeNews()
+        {
+            return false;
+        }
+
+        public event Action<News> NewsEvent;
+
         public event Action NeedToReconnectEvent;
 
         public event Action LoadSecurityEvent;
@@ -4292,6 +4284,7 @@ namespace OsEngine.Market.Servers.Tester
         private Log _logMaster;
 
         public event Action<string, LogMessageType> LogMessageEvent;
+       
 
         #endregion
     }

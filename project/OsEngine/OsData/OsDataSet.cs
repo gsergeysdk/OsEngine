@@ -1244,8 +1244,16 @@ namespace OsEngine.OsData
                 }
 
                 newCandleDataPies.Add(newPie);
+                
+                if(TimeFrame == TimeFrame.Tick)
+                {
+                    timeStart = timeNow.AddDays(1);
+                }
+                else
+                {
+                    timeStart = timeNow;
+                }
 
-                timeStart = timeNow;
                 timeNow = timeStart.Add(interval);
 
                 if (timeNow > TimeEnd)
@@ -1392,7 +1400,7 @@ namespace OsEngine.OsData
             List<Candle> candles =
                 server.GetCandleDataToSecurity(
                     id, SecClass, timeFrameBuilder,
-                    pie.Start, pie.End, pie.Start, false);
+                    pie.Start, pie.End.AddHours(23).AddMinutes(59), pie.Start, false);
 
             if (candles == null ||
                 candles.Count == 0)

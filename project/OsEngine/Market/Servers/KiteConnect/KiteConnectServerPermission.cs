@@ -115,7 +115,7 @@
 
         public int WaitTimeSecondsAfterFirstStartToSendOrders
         {
-            get { return 10; }
+            get { return 30; }
         }
 
         public bool IsCanChangeOrderPrice
@@ -123,7 +123,7 @@
             get { return true; }
         }
 
-        public bool UseStandartCandlesStarter
+        public bool UseStandardCandlesStarter
         {
             get { return true; }
         }
@@ -176,7 +176,7 @@
         TimeFrameMin2IsOn = true,
         TimeFrameMin3IsOn = true,
         TimeFrameMin5IsOn = true,
-        TimeFrameMin10IsOn = true,
+        TimeFrameMin10IsOn = false,
         TimeFrameMin15IsOn = true,
         TimeFrameMin20IsOn = false,
         TimeFrameMin30IsOn = true,
@@ -186,6 +186,15 @@
         TimeFrameHour4IsOn = true,
         TimeFrameDayIsOn = true
     };
+
+        #endregion
+
+        #region Other Permissions
+
+        public bool IsNewsServer
+        {
+            get { return false; }
+        }
 
         #endregion
     }

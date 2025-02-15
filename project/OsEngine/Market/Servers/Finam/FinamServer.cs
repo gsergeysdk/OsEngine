@@ -24,7 +24,7 @@ namespace OsEngine.Market.Servers.Finam
         {
             FinamServerRealization realization = new FinamServerRealization();
             ServerRealization = realization;
-            NeedToHideParams = true;
+            NeedToHideParameters = true;
         }
     }
 
@@ -699,6 +699,13 @@ namespace OsEngine.Market.Servers.Finam
         {
 
         }
+
+        public bool SubscribeNews()
+        {
+            return false;
+        }
+
+        public event Action<News> NewsEvent;
 
         public event Action<MarketDepth> MarketDepthEvent;
         public event Action<Trade> NewTradesEvent;

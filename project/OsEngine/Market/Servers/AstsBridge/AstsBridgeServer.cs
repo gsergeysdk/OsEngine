@@ -977,7 +977,7 @@ namespace OsEngine.Market.Servers.AstsBridge
                 }
                 else
                 {
-                    myPortfolio.Profit = portfolio.Profit;
+                    myPortfolio.UnrealizedPnl = portfolio.UnrealizedPnl;
                     myPortfolio.ValueBlocked = portfolio.ValueBlocked;
                     myPortfolio.ValueCurrent = portfolio.ValueCurrent;
                     _portfolioToSend.Enqueue(_portfolios);
@@ -1203,6 +1203,13 @@ namespace OsEngine.Market.Servers.AstsBridge
                 _candleManager.StopSeries(series);
             }
         }
+
+        public bool SubscribeNews()
+        {
+            return false;
+        }
+
+        public event Action<News> NewsEvent;
 
         /// <summary>
         /// candle series changed

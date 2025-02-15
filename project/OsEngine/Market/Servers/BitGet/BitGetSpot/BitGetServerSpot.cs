@@ -1067,6 +1067,13 @@ namespace OsEngine.Market.Servers.BitGet.BitGetSpot
             }
         }
 
+        public bool SubscribeNews()
+        {
+            return false;
+        }
+
+        public event Action<News> NewsEvent;
+
         #endregion
 
         #region 10 WebSocket parsing the messages
@@ -1538,7 +1545,7 @@ namespace OsEngine.Market.Servers.BitGet.BitGetSpot
                 Dictionary<string, dynamic> jsonContent = new Dictionary<string, dynamic>();
 
                 jsonContent.Add("symbol", order.SecurityNameCode);
-                jsonContent.Add("side", order.Side.ToString().ToLower());               
+                jsonContent.Add("side", order.Side == Side.Buy ? "buy" : "sell");               
                 jsonContent.Add("orderType", order.TypeOrder.ToString().ToLower());
                 jsonContent.Add("price", order.Price.ToString().Replace(",", "."));
                 jsonContent.Add("size", order.Volume.ToString().Replace(",", "."));
@@ -1937,12 +1944,12 @@ namespace OsEngine.Market.Servers.BitGet.BitGetSpot
             }
         }
 
-        private HttpClient _httpClient = new HttpClient();
-
         private HttpResponseMessage CreatePrivateQueryOrders(string path, string method, string queryString, string body)
         {
             try
             {
+                HttpClient _httpClient = new HttpClient();
+
                 string requestPath = path;
                 string url = $"{BaseUrl}{requestPath}";
                 string timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();

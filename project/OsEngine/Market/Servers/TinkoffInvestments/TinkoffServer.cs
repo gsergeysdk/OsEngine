@@ -20,7 +20,6 @@ using Order = OsEngine.Entity.Order;
 using Trade = OsEngine.Entity.Trade;
 using Security = OsEngine.Entity.Security;
 using Portfolio = OsEngine.Entity.Portfolio;
-using ru.micexrts.cgate.message;
 
 namespace OsEngine.Market.Servers.TinkoffInvestments
 {
@@ -131,6 +130,11 @@ namespace OsEngine.Market.Servers.TinkoffInvestments
                     }
 
                     if (_myTradesDataStream != null && _lastMyTradesDataTime.AddMinutes(3) < DateTime.UtcNow)
+                    {
+                        shitHappenedWithStreams = true;
+                    }
+
+                    if (_myOrderStateDataStream != null && _lastMyOrderStateDataTime.AddMinutes(3) < DateTime.UtcNow)
                     {
                         shitHappenedWithStreams = true;
                     }
@@ -1487,6 +1491,7 @@ namespace OsEngine.Market.Servers.TinkoffInvestments
         private DateTime _lastMarketDataTime = DateTime.MinValue;
         private DateTime _lastPortfolioDataTime = DateTime.MinValue;
         private DateTime _lastMyTradesDataTime = DateTime.MinValue;
+        private DateTime _lastMyOrderStateDataTime = DateTime.MinValue;
 
         public void Subscrible(Security security)
         {
@@ -1557,10 +1562,17 @@ namespace OsEngine.Market.Servers.TinkoffInvestments
             }
         }
 
+        public bool SubscribeNews()
+        {
+            return false;
+        }
+
+        public event Action<News> NewsEvent;
+
         #endregion
 
         #region 8 Reading messages from data streams
-        
+
         private async void DataMessageReader()
         {
             Thread.Sleep(1000);
@@ -2311,7 +2323,7 @@ namespace OsEngine.Market.Servers.TinkoffInvestments
                         continue;
                     }
 
-                    _lastMyTradesDataTime = DateTime.UtcNow;
+                    _lastMyOrderStateDataTime = DateTime.UtcNow;
 
                     if (orderStateResponse.Ping != null)
                     {
@@ -2412,7 +2424,6 @@ namespace OsEngine.Market.Servers.TinkoffInvestments
                 }
             }
         }
-
         
         public event Action<Order> MyOrderEvent;
 
@@ -2438,6 +2449,12 @@ namespace OsEngine.Market.Servers.TinkoffInvestments
                 request.OrderType = order.TypeOrder == OrderPriceType.Limit ? OrderType.Limit : OrderType.Market; // еще есть BestPrice
                 request.Quantity = Convert.ToInt32(order.Volume);
                 request.Price = ConvertToQuotation(order.Price);
+
+                if (security.SecurityType == SecurityType.Bond) // set price type to points in case security type is bond
+                {
+                    request.PriceType = PriceType.Point;
+                }
+
                 request.InstrumentId = security.NameId;
                 request.AccountId = order.PortfolioNumber;
                 request.TimeInForce = TimeInForceType.TimeInForceDay; // по-умолчанию сегодняшний день

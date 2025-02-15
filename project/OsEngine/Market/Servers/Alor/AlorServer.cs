@@ -658,6 +658,7 @@ namespace OsEngine.Market.Servers.Alor
             Portfolio newPortfolio = new Portfolio();
             newPortfolio.Number = name + "_" + prefix;
             newPortfolio.ValueCurrent = portfolio.buyingPower.ToDecimal();
+            newPortfolio.UnrealizedPnl = portfolio.profit.ToDecimal();
             _myPortfolios.Add(newPortfolio);
         }
 
@@ -1507,6 +1508,13 @@ namespace OsEngine.Market.Servers.Alor
             }
         }
 
+        public bool SubscribeNews()
+        {
+            return false;
+        }
+
+        public event Action<News> NewsEvent;
+
         #endregion
 
         #region 10 WebSocket parsing the messages
@@ -1609,6 +1617,11 @@ namespace OsEngine.Market.Servers.Alor
             }
             
             trade.Volume = baseMessage.qty.ToDecimal();
+
+            if(trade.Price < 0)
+            {
+
+            }
 
             if (NewTradesEvent != null)
             {
@@ -1818,6 +1831,8 @@ namespace OsEngine.Market.Servers.Alor
             newPos.PortfolioName = portf.Number;
             newPos.ValueCurrent = baseMessage.qty.ToDecimal();
             newPos.SecurityNameCode = baseMessage.symbol;
+            newPos.UnrealizedPnl = baseMessage.dailyUnrealisedPl.ToDecimal();
+
             portf.SetNewPosition(newPos);
 
             if (PortfolioEvent != null)
@@ -2112,8 +2127,8 @@ namespace OsEngine.Market.Servers.Alor
             
             portf.ValueBlocked = baseMessage.portfolioLiquidationValue.ToDecimal() - baseMessage.buyingPower.ToDecimal();
            
-            portf.Profit = baseMessage.profit.ToDecimal();
-            
+            portf.UnrealizedPnl = baseMessage.profit.ToDecimal();
+
             if (PortfolioEvent != null)
             {
                 PortfolioEvent(_myPortfolios);

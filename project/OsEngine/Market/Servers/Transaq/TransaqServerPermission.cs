@@ -124,12 +124,12 @@ namespace OsEngine.Market.Servers.Transaq
 
         public bool IsCanChangeOrderPrice
         {
-            get { return false; }
+            get { return true; }
         }
 
-        public bool UseStandartCandlesStarter
+        public bool UseStandardCandlesStarter
         {
-            get { return false; }
+            get { return true; }
         }
 
         public bool IsUseLotToCalculateProfit
@@ -165,11 +165,9 @@ namespace OsEngine.Market.Servers.Transaq
         TimeFrameHour4IsOn = true,
         TimeFrameDayIsOn = false
     };
-
-
         public bool ManuallyClosePositionOnBoard_IsOn
         {
-            get { return false; }
+            get { return true; }
         }
 
         public string[] ManuallyClosePositionOnBoard_ValuesForTrimmingName
@@ -190,6 +188,15 @@ namespace OsEngine.Market.Servers.Transaq
         public bool CanQueryOrderStatus
         {
             get { return false; }
+        }
+
+        #endregion
+
+        #region Other Permissions
+
+        public bool IsNewsServer
+        {
+            get { return true; }
         }
 
         #endregion

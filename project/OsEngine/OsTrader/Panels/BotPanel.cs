@@ -26,43 +26,48 @@ using OsEngine.OsTrader.RiskManager;
 namespace OsEngine.OsTrader.Panels
 {
     /// <summary>
-    /// types of tabs for the robot 
+    /// types of sources for the robot 
     /// </summary>
     public enum BotTabType
     {
         /// <summary>
-        /// for trading one instrument
+        /// source for trading one security
         /// </summary>
         Simple,
 
         /// <summary>
-        /// tab - spread of candlestick data in the form of a candlestick chart
+        /// source for index creation
         /// </summary>
         Index,
 
         /// <summary>
-        /// tab type for creating and displaying a cluster plot
+        /// source for creating and displaying a cluster chart
         /// </summary>
         Cluster,
 
         /// <summary>
-        /// for trading a portfolio of instruments
+        /// source for trading multiple securities
         /// </summary>
         Screener,
 
         /// <summary>
-        ///  tab - for trading pairs
+        ///  source for trading pairs
         /// </summary>
         Pair,
 
         /// <summary>
-        /// tab for tradind Currency Arbitrage
+        /// source for trading currency arbitrage
         /// </summary>
-        Polygon
+        Polygon,
+
+        /// <summary>
+        ///  source for the news feed
+        /// </summary>
+        News
     }
 
     /// <summary>
-    /// main parent for all robots in the program
+    /// parent for all robots in the program
     /// </summary>
     public abstract class BotPanel
     {
@@ -86,7 +91,7 @@ namespace OsEngine.OsTrader.Panels
         }
 
         /// <summary>
-        /// critical error and system restart event /
+        /// critical error and system restart event
         /// </summary>
         private void OsTraderMaster_CriticalErrorEvent()
         {
@@ -1526,7 +1531,7 @@ position => position.State != PositionStateType.OpeningFail
         private List<BotTabScreener> _tabsScreener = new List<BotTabScreener>();
 
         /// <summary>
-        /// pair tabs
+        /// polygon tabs
         /// </summary>
         public List<BotTabPolygon> TabsPolygon
         {
@@ -1536,6 +1541,18 @@ position => position.State != PositionStateType.OpeningFail
             }
         }
         private List<BotTabPolygon> _tabsPolygon = new List<BotTabPolygon>();
+
+        /// <summary>
+        /// news tabs
+        /// </summary>
+        public List<BotTabNews> TabsNews
+        {
+            get
+            {
+                return _tabsNews;
+            }
+        }
+        private List<BotTabNews> _tabsNews = new List<BotTabNews>();
 
         /// <summary>
         /// user toggled tabs
@@ -1611,6 +1628,11 @@ position => position.State != PositionStateType.OpeningFail
                 {
                     newTab = new BotTabPolygon(nameTab, StartProgram);
                     _tabsPolygon.Add((BotTabPolygon)newTab);
+                }
+                else if (tabType == BotTabType.News)
+                {
+                    newTab = new BotTabNews(nameTab, StartProgram);
+                    _tabsNews.Add((BotTabNews)newTab);
                 }
                 else if (tabType == BotTabType.Screener)
                 {
@@ -1782,6 +1804,10 @@ position => position.State != PositionStateType.OpeningFail
                 else if (ActivTab.TabType == BotTabType.Polygon)
                 {
                     ((BotTabPolygon)ActivTab).StartPaint(_hostChart);
+                }
+                else if (ActivTab.TabType == BotTabType.News)
+                {
+                    ((BotTabNews)ActivTab).StartPaint(_hostChart);
                 }
             }
             catch (Exception error)
@@ -2182,6 +2208,87 @@ position => position.State != PositionStateType.OpeningFail
         /// log message event
         /// </summary>
         public event Action<string, LogMessageType> LogMessageEvent;
+		
+        /// <summary>
+        /// set border under of Parameter
+        /// </summary>
+        /// <param name="paramName">Parameter name</param>
+        /// <param name="color">border color</param>
+        /// <param name="thickness">border thickness (min 1, max 10)</param>
+        public void SetBorderUnderParameter(string paramName, System.Drawing.Color color, int thickness)
+        {
+            try
+            {
+                int editThickness;
+
+                if (thickness < 1)
+                {
+                    editThickness = 1;
+                }
+                else if (thickness > 10)
+                {
+                    editThickness = 10;
+                }
+                else
+                {
+                    editThickness = thickness;
+                }
+
+                ParamDesign newBorderSet = new ParamDesign(ParamDesignType.BorderUnder, paramName, color, editThickness);
+
+                if (_parameterDesigns.ContainsKey(paramName + ParamDesignType.BorderUnder.ToString()))
+                {
+                    _parameterDesigns[paramName + ParamDesignType.BorderUnder.ToString()] = newBorderSet;
+                }
+                else
+                {
+                    _parameterDesigns.Add(paramName + ParamDesignType.BorderUnder.ToString(), newBorderSet);
+                }
+            }
+            catch (Exception error)
+            {
+                SendNewLogMessage(error.ToString(), LogMessageType.Error);
+            }
+        }
+
+        /// <summary>
+        /// set fore color of Parameter (text color)
+        /// </summary>
+        /// <param name="paramName">Parameter name</param>
+        /// <param name="color">color</param>
+        public void SetForeColorParameter(string paramName, System.Drawing.Color color)
+        {
+            try
+            {
+                ParamDesign newForeColorSet = new ParamDesign(ParamDesignType.ForeColor, paramName, color, 1);
+
+                if (_parameterDesigns.ContainsKey(paramName + ParamDesignType.ForeColor.ToString()))
+                {
+                    _parameterDesigns[paramName + ParamDesignType.ForeColor.ToString()] = newForeColorSet;
+                }
+                else
+                {
+                    _parameterDesigns.Add(paramName + ParamDesignType.ForeColor.ToString(), newForeColorSet);
+                }
+            }
+            catch (Exception error)
+            {
+                SendNewLogMessage(error.ToString(), LogMessageType.Error);
+            }
+        }
+       
+        /// <summary>
+        /// visual designs of Parameters
+        /// </summary>
+        public IReadOnlyDictionary<string, ParamDesign> ParameterDesigns
+        {
+            get 
+            { 
+                return _parameterDesigns; 
+            }
+        }
+        private Dictionary<string, ParamDesign> _parameterDesigns = new Dictionary<string, ParamDesign>();
+	
     }
 
     /// <summary>
@@ -2239,7 +2346,35 @@ position => position.State != PositionStateType.OpeningFail
             GridToPaint.Children.Add((UIElement)children);
         }
     }
+	
+    /// <summary>
+    /// visual design of Parameter
+    /// </summary>
+    public readonly struct ParamDesign
+    {
+        public ParamDesign(ParamDesignType designType, string paramName, System.Drawing.Color color, int thickness)
+        {
+            DesignType = designType;
+            ParamName = paramName;
+            Color = color;
+            Thickness = thickness;
+        }
 
+        /// <summary>
+        /// type of Parameter visual design
+        /// </summary>
+        public ParamDesignType DesignType { get; }
+
+        /// <summary>
+        /// Parameter name
+        /// </summary>
+        public string ParamName { get; }
+
+        public System.Drawing.Color Color { get; }
+
+        public int Thickness { get; }
+    }
+	
     /// <summary>
     /// robot trade regime
     /// </summary>
@@ -2270,4 +2405,20 @@ position => position.State != PositionStateType.OpeningFail
         /// </summary>
         Off
     }
+	
+    /// <summary>
+    /// type of Parameter visual design
+    /// </summary>
+    public enum ParamDesignType
+    {
+        /// <summary>
+        /// fore color of Parameter
+        /// </summary>
+        ForeColor,
+
+        /// <summary>
+        /// border under of Parameter 
+        /// </summary>
+        BorderUnder
+    }	
 }

@@ -34,9 +34,9 @@ namespace OsEngine.Entity
         public decimal ValueBlocked;
 
         /// <summary>
-        /// Session profit
+        /// Profit or loss on open positions
         /// </summary>
-        public decimal Profit;
+        public decimal UnrealizedPnl;
 
         /// <summary>
         /// Connector to which the portfolio belongs
@@ -78,6 +78,7 @@ namespace OsEngine.Entity
                     {
                         _positionOnBoard[i].ValueCurrent = position.ValueCurrent;
                         _positionOnBoard[i].ValueBlocked = position.ValueBlocked;
+                        _positionOnBoard[i].UnrealizedPnl = position.UnrealizedPnl;
 
                         return;
                     }
