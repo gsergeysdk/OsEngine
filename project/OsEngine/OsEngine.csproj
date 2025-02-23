@@ -1268,8 +1268,12 @@
     <Compile Include="Robots\SDKPriceChannelScreenerOnIndexVolatility.cs" />
     <Compile Include="Robots\SDKPriceChannelTrendAtrFilter.cs" />
     <Compile Include="Robots\SDKPriceChannelTrendAtrFilterScreener.cs" />
+    <Compile Include="Robots\SDKRsiFilter.cs" />
     <Compile Include="Robots\SDKTest.cs" />
     <Compile Include="Robots\SDKThreeSoldierScreener.cs" />
+    <Compile Include="Robots\SDKVolume.cs" />
+    <Compile Include="Robots\SDKZigZagChannel.cs" />
+    <Compile Include="Robots\SDKZigZagChannelScreener.cs" />
     <Compile Include="Robots\TechSamples\AllSourcesInOneSample.cs" />
     <Compile Include="Robots\TechSamples\BlockIndicatorsSample.cs" />
     <Compile Include="Robots\TechSamples\CandlesLoggingSample.cs" />
