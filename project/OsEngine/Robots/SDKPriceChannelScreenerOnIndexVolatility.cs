@@ -45,17 +45,13 @@ namespace OsEngine.Robots.SDKRobots
         public StrategyParameterInt VolatilityFastSmaLength;
         public StrategyParameterDecimal VolatilityChannelDeviation;
 
-        public StrategyParameterString VolumeType;
-        public StrategyParameterDecimal Volume;
-        public StrategyParameterString TradeAssetInPortfolio;
-        public StrategyParameterString FullTradeAssetInPortfolio;
-
         public StrategyParameterInt TopVolumeSecurities;
         public StrategyParameterInt TopCandlesLookBack;
         public StrategyParameterDecimal MaxVolatilityDifference;
         public StrategyParameterDecimal MinVolatilityDifference;
         public StrategyParameterString SecuritiesToTrade;
         public StrategyParameterBool MessageOnRebuild;
+        public SDKVolume volume;
 
         public SDKPriceChannelScreenerOnIndexVolatility(string name, StartProgram startProgram) : base(name, startProgram)
         {
@@ -67,14 +63,12 @@ namespace OsEngine.Robots.SDKRobots
             _tabScreener = TabsScreener[0];
             _tabScreener.CandleFinishedEvent += _screenerTab_CandleFinishedEvent;
 
+            volume = new SDKVolume(this);
+
             Regime = CreateParameter("Regime", "Off", new[] { "Off", "On", "OnlyLong", "OnlyShort", "OnlyClosePosition" });
             MaxPositions = CreateParameter("Max positions", 5, 0, 20, 1);
             TimeStart = CreateParameterTimeOfDay("Start Trade Time", 10, 32, 0, 0);
             TimeEnd = CreateParameterTimeOfDay("End Trade Time", 18, 25, 0, 0);
-            VolumeType = CreateParameter("Volume type", "Deposit percent", new[] { "Contracts", "Contract currency", "Deposit percent" });
-            Volume = CreateParameter("Volume", 20, 1.0m, 50, 4);
-            FullTradeAssetInPortfolio = CreateParameter("Full Asset in portfolio", "Prime");
-            TradeAssetInPortfolio = CreateParameter("Asset in portfolio (limit)", "Prime");
 
             PriceChannelLength = CreateParameter("Price channel length", 50, 10, 80, 3);
             AtrLength = CreateParameter("Atr length", 25, 10, 80, 3);
@@ -525,9 +519,9 @@ namespace OsEngine.Robots.SDKRobots
                     }
                 }
 
-                decimal volume = GetVolume(tab);
-                if (volume > 0)
-                    tab.BuyAtMarket(volume);
+                decimal vol = volume.GetVolume(tab);
+                if (vol > 0)
+                    tab.BuyAtMarket(vol);
             }
 
             if (lastPrice < lastPcDown
@@ -555,9 +549,9 @@ namespace OsEngine.Robots.SDKRobots
                         return;
                     }
                 }
-                decimal volume = GetVolume(tab);
-                if (volume > 0)
-                    tab.SellAtMarket(volume);
+                decimal vol = volume.GetVolume(tab);
+                if (vol > 0)
+                    tab.SellAtMarket(vol);
             }
         }
 
@@ -585,99 +579,6 @@ namespace OsEngine.Robots.SDKRobots
             {
                 tab.CloseAtTrailingStopMarket(position, lastPcUp);
             }
-        }
-
-        private decimal GetVolume(BotTabSimple tab)
-        {
-            decimal volume = 0;
-
-            if (VolumeType.ValueString == "Contracts")
-            {
-                volume = Volume.ValueDecimal;
-            }
-            else if (VolumeType.ValueString == "Contract currency")
-            {
-                decimal contractPrice = tab.PriceBestAsk;
-                volume = Volume.ValueDecimal / contractPrice;
-
-                if (StartProgram == StartProgram.IsOsTrader)
-                {
-                    IServerPermission serverPermission = ServerMaster.GetServerPermission(tab.Connector.ServerType);
-
-                    if (serverPermission != null &&
-                        serverPermission.IsUseLotToCalculateProfit &&
-                    tab.Security.Lot != 0 &&
-                        tab.Security.Lot > 1)
-                    {
-                        volume = Volume.ValueDecimal / (contractPrice * tab.Security.Lot);
-                    }
-
-                    volume = Math.Round(volume, tab.Security.DecimalsVolume);
-                }
-                else // Tester or Optimizer
-                {
-                    volume = Math.Round(volume / tab.Security.Lot, 6);
-                }
-            }
-            else if (VolumeType.ValueString == "Deposit percent")
-            {
-                Portfolio myPortfolio = tab.Portfolio;
-
-                if (myPortfolio == null)
-                {
-                    return 0;
-                }
-
-                decimal portfolioPrimeAsset = 0;
-                decimal fullPortfolioPrimeAsset = 0;
-
-                if (FullTradeAssetInPortfolio.ValueString == "Prime")
-                    fullPortfolioPrimeAsset = myPortfolio.ValueCurrent;
-                if (TradeAssetInPortfolio.ValueString == "Prime")
-                    portfolioPrimeAsset = myPortfolio.ValueCurrent;
-                {
-                    List<PositionOnBoard> positionOnBoard = myPortfolio.GetPositionOnBoard();
-
-                    if (positionOnBoard == null)
-                    {
-                        return 0;
-                    }
-
-                    for (int i = 0; i < positionOnBoard.Count; i++)
-                    {
-                        if (positionOnBoard[i].SecurityNameCode == TradeAssetInPortfolio.ValueString)
-                            portfolioPrimeAsset = positionOnBoard[i].ValueCurrent;
-                        if (positionOnBoard[i].SecurityNameCode == FullTradeAssetInPortfolio.ValueString)
-                            fullPortfolioPrimeAsset = positionOnBoard[i].ValueCurrent;
-                    }
-                }
-
-                if (portfolioPrimeAsset == 0 || fullPortfolioPrimeAsset == 0)
-                {
-                    SendNewLogMessage("Can`t found portfolio " + TradeAssetInPortfolio.ValueString, Logging.LogMessageType.Error);
-                    return 0;
-                }
-
-                decimal moneyOnPosition = Math.Min(fullPortfolioPrimeAsset * (Volume.ValueDecimal / 100), portfolioPrimeAsset);
-
-                decimal qty = moneyOnPosition / tab.PriceBestAsk / tab.Security.Lot;
-
-                if (tab.StartProgram == StartProgram.IsOsTrader)
-                {
-                    if (tab.Security.DecimalsVolume == 0)
-                        qty = (int)qty;
-                    else
-                        qty = Math.Round(qty, tab.Security.DecimalsVolume);
-                }
-                else
-                {
-                    qty = Math.Round(qty, 7);
-                }
-
-                return qty;
-            }
-
-            return volume;
         }
 
     }
