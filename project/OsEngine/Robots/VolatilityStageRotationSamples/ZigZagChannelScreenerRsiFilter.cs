@@ -351,30 +351,30 @@ namespace OsEngine.Robots.VolatilityStageRotationSamples
             stop = lastClose - lastClose * (TrailStop.ValueDecimal / 100);
             stopWithSlippage = stop - stop * (Slippage.ValueDecimal / 100);
 
-            if(stop > lastClose)
-            {
-                tab.CloseAtMarket(position, position.OpenVolume);
-                return;
-            }
+            //if(stop > lastClose)
+            //{
+            //    tab.CloseAtMarket(position, position.OpenVolume);
+            //    return;
+            //}
 
             tab.CloseAtTrailingStop(position, stop, stopWithSlippage);
 
-            Aindicator zigZag = (Aindicator)tab.Indicators[0];
+            //Aindicator zigZag = (Aindicator)tab.Indicators[0];
 
-            if (zigZag.DataSeries[4].Values.Count == 0 ||
-                zigZag.DataSeries[4].Last == 0)
-            {
-                return;
-            }
+            //if (zigZag.DataSeries[4].Values.Count == 0 ||
+            //    zigZag.DataSeries[4].Last == 0)
+            //{
+            //    return;
+            //}
 
-            decimal zigZagUpLine = zigZag.DataSeries[4].Last;
-            decimal lastCandleClose = candles[candles.Count - 1].Close;
+            //decimal zigZagUpLine = zigZag.DataSeries[4].Last;
+            //decimal lastCandleClose = candles[candles.Count - 1].Close;
 
-            if(zigZagUpLine != 0 &&
-                lastCandleClose > zigZagUpLine)
-            {
-                position.StopOrderIsActiv = false;
-            }
+            //if(zigZagUpLine != 0 &&
+            //    lastCandleClose > zigZagUpLine)
+            //{
+            //    position.StopOrderIsActiv = false;
+            //}
         }
 
         private decimal GetVolume(BotTabSimple tab)
