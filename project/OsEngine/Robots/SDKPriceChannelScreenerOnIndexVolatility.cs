@@ -112,7 +112,7 @@ namespace OsEngine.Robots.SDKRobots
 
             ParametrsChangeByUser += PriceChannelScreenerOnIndexVolatility_ParametrsChangeByUser;
 
-            if (StartProgram == StartProgram.IsTester && ServerMaster.GetServers() != null)
+            if (StartProgram == StartProgram.IsTester && ServerMaster.GetServers() != null && ServerMaster.GetServers().Count > 0)
             {
                 TesterServer server = (TesterServer)ServerMaster.GetServers()[0];
 
