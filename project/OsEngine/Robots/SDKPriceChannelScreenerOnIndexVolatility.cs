@@ -13,6 +13,7 @@ using OsEngine.OsTrader.Panels.Attributes;
 using OsEngine.OsTrader.Panels.Tab;
 using OsEngine.Indicators;
 using OsEngine.Market.Servers.Tester;
+using OsEngine.Market.Servers.Optimizer;
 
 namespace OsEngine.Robots.SDKRobots
 {
@@ -113,11 +114,18 @@ namespace OsEngine.Robots.SDKRobots
             ParametrsChangeByUser += PriceChannelScreenerOnIndexVolatility_ParametrsChangeByUser;
 
             if (StartProgram == StartProgram.IsTester && ServerMaster.GetServers() != null && ServerMaster.GetServers().Count > 0)
-            {
-                TesterServer server = (TesterServer)ServerMaster.GetServers()[0];
+                if (ServerMaster.GetServers()[0].ServerType == ServerType.Tester)
+                {
+                    TesterServer server = (TesterServer)ServerMaster.GetServers()[0];
 
-                server.TestingStartEvent += Server_TestingStartEvent;
-            }
+                    server.TestingStartEvent += Server_TestingStartEvent;
+                }
+                else if (ServerMaster.GetServers()[0].ServerType == ServerType.Optimizer)
+                {
+                    OptimizerServer server = (OptimizerServer)ServerMaster.GetServers()[0];
+
+                    server.TestingStartEvent += Server_TestingStartEvent;
+                }
         }
 
         private void Server_TestingStartEvent()
@@ -213,6 +221,8 @@ namespace OsEngine.Robots.SDKRobots
 
             for (int i = 0; i < tabs.Count; i++)
             {
+                if (tabs[i].Security == null)
+                    continue;
                 SecurityRatingDataPc newData = new SecurityRatingDataPc();
                 newData.SecurityName = tabs[i].Security.Name;
                 newData.Volume = CalculateVolume(TopCandlesLookBack.ValueInt, tabs[i]);
