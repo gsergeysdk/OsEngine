@@ -1339,7 +1339,7 @@
     <Compile Include="Robots\SDKPriceChannelScreenerOnIndexVolatility.cs" />
     <Compile Include="Robots\SDKPriceChannelTrendAtrFilter.cs" />
     <Compile Include="Robots\SDKPriceChannelTrendAtrFilterScreener.cs" />
-    <Compile Include="Robots\SDKRsiFilter.cs" />
+    <Compile Include="Robots\SDKFilterSecuritiesByRsi.cs" />
     <Compile Include="Robots\SDKTest.cs" />
     <Compile Include="Robots\SDKThreeSoldier.cs" />
     <Compile Include="Robots\SDKThreeSoldierScreener.cs" />
