@@ -12,6 +12,7 @@ using OsEngine.OsTrader.Panels.Attributes;
 using OsEngine.Market.Servers;
 using OsEngine.Market;
 using System;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement;
 
 namespace OsEngine.Robots.SDKRobots
 {
@@ -29,9 +30,11 @@ namespace OsEngine.Robots.SDKRobots
         public StrategyParameterBool AtrFilterIsOn;
         public StrategyParameterDecimal AtrGrowPercent;
         public StrategyParameterInt AtrGrowLookBack;
-        public StrategyParameterString VolumeType;
-        public StrategyParameterDecimal Volume;
-        public StrategyParameterString TradeAssetInPortfolio;
+
+        public StrategyParameterBool SmaFilterIsOn;
+        public StrategyParameterInt SmaFilterLen;
+
+        public SDKVolume volume;
 
         public SDKPriceChannelTrendAtrFilter(string name, StartProgram startProgram)
             : base(name, startProgram)
@@ -41,16 +44,15 @@ namespace OsEngine.Robots.SDKRobots
 
             Regime = CreateParameter("Regime", "Off", new[] { "Off", "On", "OnlyLong", "OnlyShort", "OnlyClosePosition" });
 
-            VolumeType = CreateParameter("Volume type", "Deposit percent", new[] { "Contracts", "Contract currency", "Deposit percent" });
-            Volume = CreateParameter("Volume", 20, 1.0m, 50, 4);
-            TradeAssetInPortfolio = CreateParameter("Asset in portfolio", "Prime");
-
             PriceChannelLength = CreateParameter("Price channel length", 50, 10, 80, 3);
             AtrLength = CreateParameter("Atr length", 25, 10, 80, 3);
 
             AtrFilterIsOn = CreateParameter("Atr filter is on", false);
             AtrGrowPercent = CreateParameter("Atr grow percent", 3, 1.0m, 50, 4);
             AtrGrowLookBack = CreateParameter("Atr grow look back", 20, 1, 50, 4);
+
+            SmaFilterIsOn = CreateParameter("Sma filter is on", true);
+            SmaFilterLen = CreateParameter("Sma filter Len", 100, 100, 300, 10);
 
             _pc = IndicatorsFactory.CreateIndicatorByName("PriceChannel", name + "PriceChannel", false);
             _pc = (Aindicator)_tab.CreateCandleIndicator(_pc, "Prime");
@@ -63,6 +65,8 @@ namespace OsEngine.Robots.SDKRobots
             _atr.ParametersDigit[0].Value = AtrLength.ValueInt;
 
             _tab.CandleFinishedEvent += _tab_CandleFinishedEvent;
+
+            volume = new SDKVolume(this);
 
             ParametrsChangeByUser += Event_ParametrsChangeByUser;
         }
@@ -173,7 +177,15 @@ namespace OsEngine.Robots.SDKRobots
                     }
                 }
 
-                _tab.BuyAtMarket(GetVolume(_tab));
+                if (SmaFilterIsOn.ValueBool == true)
+                {
+                    decimal smaValue = Sma(candles, SmaFilterLen.ValueInt, candles.Count - 1);
+                    decimal smaPrev = Sma(candles, SmaFilterLen.ValueInt, candles.Count - 2);
+                    if (smaValue < smaPrev)
+                        return;
+                }
+
+                _tab.BuyAtMarket(volume.GetVolume(_tab));
             }
             if (lastPrice < lastPcDown
                 && Regime.ValueString != "OnlyLong")
@@ -203,7 +215,15 @@ namespace OsEngine.Robots.SDKRobots
                     }
                 }
 
-                _tab.SellAtMarket(GetVolume(_tab));
+                if (SmaFilterIsOn.ValueBool == true)
+                {
+                    decimal smaValue = Sma(candles, SmaFilterLen.ValueInt, candles.Count - 1);
+                    decimal smaPrev = Sma(candles, SmaFilterLen.ValueInt, candles.Count - 2);
+                    if (smaValue > smaPrev)
+                        return;
+                }
+
+                _tab.SellAtMarket(volume.GetVolume(_tab));
             }
         }
 
@@ -222,98 +242,31 @@ namespace OsEngine.Robots.SDKRobots
             }
         }
 
-        private decimal GetVolume(BotTabSimple tab)
+        private decimal Sma(List<Candle> candles, int len, int index)
         {
-            decimal volume = 0;
-
-            if (VolumeType.ValueString == "Contracts")
+            if (candles.Count == 0
+                || index >= candles.Count
+                || index <= 0)
             {
-                volume = Volume.ValueDecimal;
-            }
-            else if (VolumeType.ValueString == "Contract currency")
-            {
-                decimal contractPrice = tab.PriceBestAsk;
-                volume = Volume.ValueDecimal / contractPrice;
-
-                if (StartProgram == StartProgram.IsOsTrader)
-                {
-                    IServerPermission serverPermission = ServerMaster.GetServerPermission(tab.Connector.ServerType);
-
-                    if (serverPermission != null &&
-                        serverPermission.IsUseLotToCalculateProfit &&
-                    tab.Security.Lot != 0 &&
-                        tab.Security.Lot > 1)
-                    {
-                        volume = Volume.ValueDecimal / (contractPrice * tab.Security.Lot);
-                    }
-
-                    volume = Math.Round(volume, tab.Security.DecimalsVolume);
-                }
-                else // Tester or Optimizer
-                {
-                    volume = Math.Round(volume / tab.Security.Lot, 6);
-                }
-            }
-            else if (VolumeType.ValueString == "Deposit percent")
-            {
-                Portfolio myPortfolio = tab.Portfolio;
-
-                if (myPortfolio == null)
-                {
-                    return 0;
-                }
-
-                decimal portfolioPrimeAsset = 0;
-                decimal portfolioPrimeAssetBlocked = 0;
-
-                if (TradeAssetInPortfolio.ValueString == "Prime")
-                {
-                    portfolioPrimeAsset = myPortfolio.ValueCurrent;
-                    portfolioPrimeAssetBlocked = myPortfolio.ValueBlocked;
-                }
-                else
-                {
-                    List<PositionOnBoard> positionOnBoard = myPortfolio.GetPositionOnBoard();
-
-                    if (positionOnBoard == null)
-                    {
-                        return 0;
-                    }
-
-                    for (int i = 0; i < positionOnBoard.Count; i++)
-                    {
-                        if (positionOnBoard[i].SecurityNameCode == TradeAssetInPortfolio.ValueString)
-                        {
-                            portfolioPrimeAsset = positionOnBoard[i].ValueCurrent;
-                            portfolioPrimeAssetBlocked = positionOnBoard[i].ValueBlocked;
-                            break;
-                        }
-                    }
-                }
-
-                if (portfolioPrimeAsset == 0)
-                {
-                    SendNewLogMessage("Can`t found portfolio " + TradeAssetInPortfolio.ValueString, Logging.LogMessageType.Error);
-                    return 0;
-                }
-
-                decimal moneyOnPosition = Math.Min(portfolioPrimeAsset * (Volume.ValueDecimal / 100), portfolioPrimeAsset - portfolioPrimeAssetBlocked);
-
-                decimal qty = moneyOnPosition / tab.PriceBestAsk / tab.Security.Lot;
-
-                if (tab.StartProgram == StartProgram.IsOsTrader)
-                {
-                    qty = Math.Round(qty, tab.Security.DecimalsVolume);
-                }
-                else
-                {
-                    qty = Math.Round(qty, 7);
-                }
-
-                return qty;
+                return 0;
             }
 
-            return volume;
+            decimal summ = 0;
+
+            int countPoints = 0;
+
+            for (int i = index; i >= 0 && i > index - len; i--)
+            {
+                countPoints++;
+                summ += candles[i].Close;
+            }
+
+            if (countPoints == 0)
+            {
+                return 0;
+            }
+
+            return summ / countPoints;
         }
     }
 }
