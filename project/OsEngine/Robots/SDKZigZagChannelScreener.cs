@@ -26,7 +26,7 @@ namespace OsEngine.Robots
         public StrategyParameterDecimal TrailStop;
 
         public SDKVolume volume;
-        public SDKRsiFilter rsiFilter;
+        public SDKFilterSecuritiesByRsi rsiFilter;
 
         public int zigzagIndx;
 
@@ -54,7 +54,7 @@ namespace OsEngine.Robots
                 "ZigZagChannel_indicator", new List<string>() { ZigZagChannelLen.ValueInt.ToString() }, "Prime");
 
             volume = new SDKVolume(this);
-            rsiFilter = new SDKRsiFilter(this, ref indicatorIndex);
+            rsiFilter = new SDKFilterSecuritiesByRsi(this, ref indicatorIndex);
 
             if (StartProgram == StartProgram.IsTester && ServerMaster.GetServers() != null)
             {
@@ -132,7 +132,7 @@ namespace OsEngine.Robots
                 return;
             }
 
-            if (rsiFilter.filterSecurityToTrade(tab.Security.Name) == false)
+            if (rsiFilter.checkFilter( candles, tab) == false)
                 return;
 
             Aindicator zigzag = getZigZagIndicator(tab);
