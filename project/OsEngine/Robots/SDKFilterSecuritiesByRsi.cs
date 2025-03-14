@@ -12,7 +12,7 @@ using System.Threading.Tasks;
 
 namespace OsEngine.Robots
 {
-    public class SDKRsiFilter
+    public class SDKFilterSecuritiesByRsi
     {
         private BotPanel panel;
         private BotTabScreener tabScreener;
@@ -26,20 +26,20 @@ namespace OsEngine.Robots
 
         public int rsiIndx;
 
-        public SDKRsiFilter(BotPanel panel, ref int indicatorIndex)
+        public SDKFilterSecuritiesByRsi(BotPanel panel, ref int indicatorIndex)
         {
             this.panel = panel;
             Init(ref indicatorIndex);
         }
         public void Init(ref int indicatorIndex)
         {
-            UseRsiFilter = panel.CreateParameter("Use Rsi Filter", false, "Rsi Filter");
-            RsiLen = panel.CreateParameter("Rsi length", 25, 0, 20, 1, "Rsi Filter");
-            TopVolumeSecurities = panel.CreateParameter("Top volume securities", 15, 0, 20, 1, "Rsi Filter");
-            TopVolumeDaysLookBack = panel.CreateParameter("Top volume days look back", 3, 0, 20, 1, "Rsi Filter");
-            MaxSecuritiesToTrade = panel.CreateParameter("Max securities to trade", 5, 0, 20, 1, "Rsi Filter");
-            SecuritiesToTrade = panel.CreateParameter("Securities to trade", "", "Rsi Filter");
-            StrategyParameterButton button = panel.CreateParameterButton("Check securities rating", "Rsi Filter");
+            UseRsiFilter = panel.CreateParameter("Use Rsi Filter", false, "Filter By Rsi");
+            RsiLen = panel.CreateParameter("Rsi length", 25, 0, 20, 1, "Filter By Rsi");
+            TopVolumeSecurities = panel.CreateParameter("Top volume securities", 15, 0, 20, 1, "Filter By Rsi");
+            TopVolumeDaysLookBack = panel.CreateParameter("Top volume days look back", 3, 0, 20, 1, "Filter By Rsi");
+            MaxSecuritiesToTrade = panel.CreateParameter("Max securities to trade", 5, 0, 20, 1, "Filter By Rsi");
+            SecuritiesToTrade = panel.CreateParameter("Securities to trade", "", "Filter By Rsi");
+            StrategyParameterButton button = panel.CreateParameterButton("Check securities rating", "Filter By Rsi");
             button.UserClickOnButtonEvent += Button_UserClickOnButtonEvent;
 
             tabScreener = panel.TabsScreener[0];
@@ -82,11 +82,10 @@ namespace OsEngine.Robots
             CheckSecuritiesRating();
         }
 
-        public bool filterSecurityToTrade(string name)
+        public bool checkFilter(List<Candle> candles, BotTabSimple tab)
         {
-            return !UseRsiFilter.ValueBool || SecuritiesToTrade.ValueString.Contains(name);
+            return !UseRsiFilter.ValueBool || SecuritiesToTrade.ValueString.Contains(tab.Security.Name);
         }
-
 
 
         private void CheckSecuritiesRating()
