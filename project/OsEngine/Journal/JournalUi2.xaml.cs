@@ -5165,6 +5165,8 @@ namespace OsEngine.Journal
                 }
             }
 
+            securities.Sort((x, y) => x.Name.CompareTo(y.Name));
+
             return securities;
         }
 
