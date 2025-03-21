@@ -35,6 +35,7 @@ namespace OsEngine.Robots.SoldiersScreener
             DaysVolatilityAdaptive = CreateParameter("Days volatility adaptive", 1, 0, 20, 1);
             HeightSoldiersVolaPecrent = CreateParameter("Height soldiers volatility percent", 5, 0, 20, 1m);
             MinHeightOneSoldiersVolaPecrent = CreateParameter("Min height one soldier volatility percent", 1, 0, 20, 1m);
+            MaxHeightPatternPercent = CreateParameter("Max percent of height pattern from price", 5, 5, 20, 1m);
             SmaFilterIsOn = CreateParameter("Sma filter is on", true);
             SmaFilterLen = CreateParameter("Sma filter Len", 100, 100, 300, 10);
             volume = new SDKVolume(this);
@@ -74,6 +75,7 @@ namespace OsEngine.Robots.SoldiersScreener
         public StrategyParameterInt DaysVolatilityAdaptive;
         public StrategyParameterDecimal HeightSoldiersVolaPecrent;
         public StrategyParameterDecimal MinHeightOneSoldiersVolaPecrent;
+        public StrategyParameterDecimal MaxHeightPatternPercent;
 
         public StrategyParameterBool SmaFilterIsOn;
         public StrategyParameterInt SmaFilterLen;
@@ -156,6 +158,7 @@ namespace OsEngine.Robots.SoldiersScreener
         private void AdaptSoldiersHeight(List<Candle> candles, SecuritiesTradeSettings settings)
         {
             if (DaysVolatilityAdaptive.ValueInt <= 0
+                || candles.Count < 2
                 || HeightSoldiersVolaPecrent.ValueDecimal <= 0
                 || MinHeightOneSoldiersVolaPecrent.ValueDecimal <= 0)
                 return;
@@ -165,10 +168,10 @@ namespace OsEngine.Robots.SoldiersScreener
             decimal minValueInDay = decimal.MaxValue;
             decimal maxValueInDay = decimal.MinValue;
             List<decimal> volaInDaysPercent = new List<decimal>();
-            DateTime date = candles[candles.Count - 1].TimeStart.Date;
+            DateTime date = candles[candles.Count - 2].TimeStart.Date;
             int days = 0;
 
-            for (int i = candles.Count - 1; i >= 0; i--)
+            for (int i = candles.Count - 2; i >= 0; i--)
             {
                 Candle curCandle = candles[i];
                 if (curCandle.TimeStart.Date < date)
@@ -182,7 +185,7 @@ namespace OsEngine.Robots.SoldiersScreener
                     maxValueInDay = decimal.MinValue;
                 }
 
-                if (days >= DaysVolatilityAdaptive.ValueInt)
+                if (days > DaysVolatilityAdaptive.ValueInt)
                     break;
 
                 if (curCandle.High > maxValueInDay)
@@ -317,6 +320,9 @@ namespace OsEngine.Robots.SoldiersScreener
             if (Math.Abs(candles[candles.Count - 3].Open - candles[candles.Count - 1].Close)
                 / (candles[candles.Count - 1].Close / 100) < settings.HeightSoldiers)
                 return;
+            if (Math.Abs(candles[candles.Count - 3].Open - candles[candles.Count - 1].Close)
+                / (candles[candles.Count - 1].Close / 100) > MaxHeightPatternPercent.ValueDecimal)
+                return;
             if (Math.Abs(candles[candles.Count - 3].Open - candles[candles.Count - 3].Close)
                 / (candles[candles.Count - 3].Close / 100) < settings.MinHeightOneSoldier)
                 return;
@@ -393,10 +399,7 @@ namespace OsEngine.Robots.SoldiersScreener
 
                     if (bars > ExitAtBarCount.ValueInt)
                     {
-                        if (position.Direction == Side.Buy)
-                            tab.CloseAtLimit(position, tab.PriceBestAsk - tab.PriceBestAsk * (Slippage.ValueDecimal / 100), position.OpenVolume);
-                        else
-                            tab.CloseAtLimit(position, tab.PriceBestBid + tab.PriceBestBid * (Slippage.ValueDecimal / 100), position.OpenVolume);
+                        tab.CloseAtMarket(position, position.OpenVolume);
                         continue;
                     }
                 }
