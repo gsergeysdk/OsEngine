@@ -8,8 +8,8 @@ using OsEngine.OsTrader.Panels.Attributes;
 using OsEngine.OsTrader.Panels.Tab;
 using System.IO;
 using System.Globalization;
-using OsEngine.Charts.CandleChart.Indicators;
 using OsEngine.Indicators;
+using OsEngine.Market.Servers.Tester;
 
 
 namespace OsEngine.Robots.SoldiersScreener
@@ -62,9 +62,26 @@ namespace OsEngine.Robots.SoldiersScreener
 
             if (startProgram == StartProgram.IsOsTrader)
                 LoadTradeSettings();
+            else if (startProgram == StartProgram.IsTester)
+            {
+                List<IServer> servers = ServerMaster.GetServers();
+
+                if (servers != null
+                    && servers.Count > 0
+                    && servers[0].ServerType == ServerType.Tester)
+                {
+                    TesterServer server = (TesterServer)servers[0];
+                    server.TestingStartEvent += Server_TestingStartEvent;
+                }
+            }
 
             this.DeleteEvent += ThreeSoldierAdaptiveScreener_DeleteEvent;
             ParametrsChangeByUser += Screener_ParametrsChangeByUser;
+        }
+
+        private void Server_TestingStartEvent()
+        {
+            _tradeSettings.Clear();
         }
 
         private void Screener_ParametrsChangeByUser()
@@ -187,9 +204,7 @@ namespace OsEngine.Robots.SoldiersScreener
         private void AdaptSoldiersHeight(List<Candle> candles, SecuritiesTradeSettings settings)
         {
             if (DaysVolatilityAdaptive.ValueInt <= 0
-                || candles.Count < 2
-                || HeightSoldiersVolaPecrent.ValueDecimal <= 0
-                || MinHeightOneSoldiersVolaPecrent.ValueDecimal <= 0)
+                || candles.Count < 2)
                 return;
 
             // 1 рассчитываем движение от хая до лоя внутри N дней
@@ -296,10 +311,6 @@ namespace OsEngine.Robots.SoldiersScreener
                     SaveTradeSettings();
             }
 
-            if(mySettings.HeightSoldiers == 0 ||
-                mySettings.MinHeightOneSoldier == 0 ||
-                HeightSoldiersVolaPecrent.ValueDecimal < MinHeightOneSoldiersVolaPecrent.ValueDecimal * 3m)
-                return;
 
             Logic(candles, tab, mySettings);
         }
@@ -334,7 +345,7 @@ namespace OsEngine.Robots.SoldiersScreener
 
         private void LogicOpenPosition(List<Candle> candles, BotTabSimple tab, SecuritiesTradeSettings settings)
         {
-            if (_tab.PositionsOpenAll.Count >= MaxPositions.ValueInt)
+            if (_tab.PositionsOpenAll.Count >= MaxPositions.ValueInt || settings.HeightSoldiers <= 0m)
                 return;
 
             if (candles[candles.Count - 3].TimeStart.Day != candles[candles.Count - 1].TimeStart.Day)
@@ -370,11 +381,11 @@ namespace OsEngine.Robots.SoldiersScreener
                     && candles[candles.Count - 2].Open < candles[candles.Count - 2].Close
                     && candles[candles.Count - 1].Open < candles[candles.Count - 1].Close)
                 {
-                    if(SmaFilterIsOn.ValueBool == true)
+                    if (SmaFilterIsOn.ValueBool == true)
                     {
-                        decimal smaValue = Sma(candles, SmaFilterLen.ValueInt, candles.Count - 1);
-                        decimal smaPrev = Sma(candles, SmaFilterLen.ValueInt, candles.Count - 2);
-                        if (smaValue < smaPrev)
+                        decimal smaValue = Sma(candles, SmaFilterLen.ValueInt, candles.Count - 4); // before pattern
+                        decimal smaPrev = Sma(candles, SmaFilterLen.ValueInt, candles.Count - 5);  // before pattern - 1 bar
+                        if (smaValue <= smaPrev)
                             return;
                     }
                     decimal vol = volume.GetVolume(tab);
@@ -392,9 +403,9 @@ namespace OsEngine.Robots.SoldiersScreener
                 {
                     if (SmaFilterIsOn.ValueBool == true)
                     {
-                        decimal smaValue = Sma(candles, SmaFilterLen.ValueInt, candles.Count - 1);
-                        decimal smaPrev = Sma(candles, SmaFilterLen.ValueInt, candles.Count - 2);
-                        if (smaValue > smaPrev)
+                        decimal smaValue = Sma(candles, SmaFilterLen.ValueInt, candles.Count - 4);
+                        decimal smaPrev = Sma(candles, SmaFilterLen.ValueInt, candles.Count - 5);
+                        if (smaValue >= smaPrev)
                             return;
                     }
                     decimal vol = volume.GetVolume(tab);
