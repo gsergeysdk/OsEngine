@@ -385,7 +385,7 @@ namespace OsEngine.Robots.SoldiersScreener
                     {
                         decimal smaValue = Sma(candles, SmaFilterLen.ValueInt, candles.Count - 4); // before pattern
                         decimal smaPrev = Sma(candles, SmaFilterLen.ValueInt, candles.Count - 5);  // before pattern - 1 bar
-                        if (smaValue <= smaPrev)
+                        if (smaValue <= smaPrev || smaValue > candles[candles.Count - 4].Close)
                             return;
                     }
                     decimal vol = volume.GetVolume(tab);
@@ -405,7 +405,7 @@ namespace OsEngine.Robots.SoldiersScreener
                     {
                         decimal smaValue = Sma(candles, SmaFilterLen.ValueInt, candles.Count - 4);
                         decimal smaPrev = Sma(candles, SmaFilterLen.ValueInt, candles.Count - 5);
-                        if (smaValue >= smaPrev)
+                        if (smaValue >= smaPrev || smaValue < candles[candles.Count - 4].Close)
                             return;
                     }
                     decimal vol = volume.GetVolume(tab);
