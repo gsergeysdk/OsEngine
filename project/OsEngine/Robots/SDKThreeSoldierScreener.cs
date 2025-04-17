@@ -499,7 +499,7 @@ namespace OsEngine.Robots.SoldiersScreener
                     }
                     else
                     {
-                        if (pcUpTSL != 0 && pcDownTSL >= position.EntryPrice * 0.999m)
+                        if (pcUpTSL != 0 && pcUpTSL >= position.EntryPrice * 0.999m)
                             tab.CloseAtTrailingStop(position, pcUpTSL, pcUpTSL + pcUpTSL * (Slippage.ValueDecimal / 100));
                         if (pcUpTSP != 0 && pcDownTSP < position.EntryPrice)
                             tab.CloseAtTrailingStop(position, pcUpTSP, pcUpTSP + pcUpTSP * (Slippage.ValueDecimal / 100));
