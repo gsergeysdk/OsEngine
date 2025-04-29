@@ -39,21 +39,12 @@ namespace OsEngine.Robots.SoldiersScreener
             MaxHeightPatternPercent = CreateParameter("Max percent of height pattern from price", 5, 5, 20, 1m);
             SmaFilterIsOn = CreateParameter("Sma filter is on", true);
             SmaFilterLen = CreateParameter("Sma filter Len", 100, 100, 300, 10);
-            CreateParameterLabel("Trailing Stop Loss", "Trailing Stop Loss", "", 15, 10, System.Drawing.Color.White);
-            PcTSLAdxLength = CreateParameter("Pc TSL adx length", 10, 5, 50, 1);
-            PcTSLRatio = CreateParameter("Pc TSL ratio", 80, 100, 600, 1);
-            CreateParameterLabel("Trailing Stop Profit", "Trailing Stop Profit", "", 15, 10, System.Drawing.Color.White);
-            PcTSPAdxLength = CreateParameter("Pc TSP adx length", 10, 5, 50, 1);
-            PcTSPRatio = CreateParameter("Pc TSP ratio", 80, 100, 600, 1);
+            PcTSLLength = CreateParameter("Pc TSL length", 10, 5, 50, 1);
             volume = new SDKVolume(this);
 
             _tab.CreateCandleIndicator(1,
-                "PriceChannelAdaptive",
-                new List<string>() { PcTSLAdxLength.ValueInt.ToString(), PcTSLRatio.ValueInt.ToString() },
-                "Prime");
-            _tab.CreateCandleIndicator(2,
-                "PriceChannelAdaptive",
-                new List<string>() { PcTSPAdxLength.ValueInt.ToString(), PcTSPRatio.ValueInt.ToString() },
+                "PriceChannel",
+                new List<string>() { PcTSLLength.ValueInt.ToString(), PcTSLLength.ValueInt.ToString() },
                 "Prime");
 
             Description = "Trading robot Three Soldiers adaptive by volatility. " +
@@ -86,8 +77,7 @@ namespace OsEngine.Robots.SoldiersScreener
 
         private void Screener_ParametrsChangeByUser()
         {
-            _tab._indicators[0].Parameters = new List<string>() { PcTSLAdxLength.ValueInt.ToString(), PcTSLRatio.ValueInt.ToString() };
-            _tab._indicators[1].Parameters = new List<string>() { PcTSPAdxLength.ValueInt.ToString(), PcTSPRatio.ValueInt.ToString() };
+            _tab._indicators[0].Parameters = new List<string>() { Math.Max(PcTSLLength.ValueInt, 10).ToString(), Math.Max(PcTSLLength.ValueInt, 10).ToString() };
 
             _tab.UpdateIndicatorsParameters();
         }
@@ -112,10 +102,7 @@ namespace OsEngine.Robots.SoldiersScreener
         public StrategyParameterDecimal ProcHeightStop;
         public StrategyParameterDecimal TrailingStopRepcent;
         public StrategyParameterInt ExitAtBarCount;
-        public StrategyParameterInt PcTSLAdxLength; // trailing stop loss
-        public StrategyParameterInt PcTSLRatio; // trailing stop loss
-        public StrategyParameterInt PcTSPAdxLength; // trailing stop profit
-        public StrategyParameterInt PcTSPRatio; // trailing stop profit
+        public StrategyParameterInt PcTSLLength; // price channel for trailing stop loss
         public StrategyParameterDecimal Slippage;
 
         public StrategyParameterInt DaysVolatilityAdaptive;
@@ -318,7 +305,7 @@ namespace OsEngine.Robots.SoldiersScreener
         private void _tab_CandleUpdateEvent(List<Candle> candles, BotTabSimple tab)
         {
             List<Position> openPositions = tab.PositionsOpenAll;
-            if (openPositions != null && openPositions.Count != 0)
+            if (openPositions != null && openPositions.Count != 0 && tab.StartProgram == StartProgram.IsOsTrader)
             {
                 SecuritiesTradeSettings mySettings = getSettings(tab);
                 if (mySettings == null)
@@ -420,11 +407,8 @@ namespace OsEngine.Robots.SoldiersScreener
         {
             decimal _lastPrice = candles[candles.Count - 1].Close;
             Aindicator priceChannel = (Aindicator)tab.Indicators[0];
-            decimal pcUpTSL = priceChannel.DataSeries[0].Last;
-            decimal pcDownTSL = priceChannel.DataSeries[1].Last;
-            Aindicator priceChannel2 = (Aindicator)tab.Indicators[1];
-            decimal pcUpTSP = priceChannel2.DataSeries[0].Last;
-            decimal pcDownTSP = priceChannel2.DataSeries[1].Last;
+            decimal pcUpTSL = PcTSLLength.ValueInt > 0 ? priceChannel.DataSeries[0].Last : 0m;
+            decimal pcDownTSL = PcTSLLength.ValueInt > 0 ? priceChannel.DataSeries[1].Last : 0m;
 
             List<Position> openPositions = tab.PositionsOpenAll;
             for (int i = 0; openPositions != null && i < openPositions.Count; i++)
@@ -473,10 +457,8 @@ namespace OsEngine.Robots.SoldiersScreener
                     }
                     else
                     {
-                        if (pcDownTSL != 0 && pcDownTSL <= position.EntryPrice * 1.001m)
+                        if (pcDownTSL != 0)
                             tab.CloseAtTrailingStop(position, pcDownTSL, pcDownTSL - pcDownTSL * (Slippage.ValueDecimal / 100));
-                        if (pcDownTSP != 0 && pcDownTSP > position.EntryPrice)
-                            tab.CloseAtTrailingStop(position, pcDownTSP, pcDownTSP - pcDownTSP * (Slippage.ValueDecimal / 100));
                     }
                 }
                 else
@@ -499,10 +481,8 @@ namespace OsEngine.Robots.SoldiersScreener
                     }
                     else
                     {
-                        if (pcUpTSL != 0 && pcUpTSL >= position.EntryPrice * 0.999m)
+                        if (pcUpTSL != 0)
                             tab.CloseAtTrailingStop(position, pcUpTSL, pcUpTSL + pcUpTSL * (Slippage.ValueDecimal / 100));
-                        if (pcUpTSP != 0 && pcDownTSP < position.EntryPrice)
-                            tab.CloseAtTrailingStop(position, pcUpTSP, pcUpTSP + pcUpTSP * (Slippage.ValueDecimal / 100));
                     }
                 }
             }
