@@ -1343,6 +1343,7 @@
     <Compile Include="Robots\SDKTest.cs" />
     <Compile Include="Robots\SDKThreeSoldier.cs" />
     <Compile Include="Robots\SDKThreeSoldierScreener.cs" />
+    <Compile Include="Robots\SDKTimeTradingScreener.cs" />
     <Compile Include="Robots\SDKVolume.cs" />
     <Compile Include="Robots\SDKZigZagChannel.cs" />
     <Compile Include="Robots\SDKZigZagChannelScreener.cs" />
