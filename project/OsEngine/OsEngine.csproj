@@ -1335,6 +1335,7 @@
     <Compile Include="Robots\Screeners\PinBarScreener.cs" />
     <Compile Include="Robots\Screeners\PinBarVolatilityScreener.cs" />
     <Compile Include="Robots\Screeners\PriceChannelAdaptiveRsiScreener.cs" />
+    <Compile Include="Robots\SDKBuyAndHoldScreener.cs" />
     <Compile Include="Robots\SDKCryptoTrend.cs" />
     <Compile Include="Robots\SDKPriceChannelScreenerOnIndexVolatility.cs" />
     <Compile Include="Robots\SDKPriceChannelTrendAtrFilter.cs" />
