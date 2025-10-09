@@ -40,19 +40,7 @@ namespace OsEngine.Robots.SoldiersScreener
             MaxHeightPatternPercent = CreateParameter("Max percent of height pattern from price", 5, 5, 20, 1m);
             SmaFilterIsOn = CreateParameter("Sma filter is on", true);
             SmaFilterLen = CreateParameter("Sma filter Len", 100, 100, 300, 10);
-            PcTSLLength = CreateParameter("Pc TSL length", 10, 5, 50, 1);
-            superTrandLength = CreateParameter("SuperTrand Length", 10, 10, 50, 10);
-            superTrandDeviation = CreateParameter("SuperTrand Deviation", 1, 1m, 10, 1);
             volume = new SDKVolume(this);
-
-            _tab.CreateCandleIndicator(1,
-                "PriceChannel",
-                new List<string>() { PcTSLLength.ValueInt.ToString(), PcTSLLength.ValueInt.ToString() },
-                "Prime");
-            _tab.CreateCandleIndicator(2,
-                "SuperTrend_indicator",
-                new List<string>() { superTrandLength.ValueInt.ToString(), superTrandDeviation.ValueDecimal.ToString() },
-                "Prime");
 
             Description = "Trading robot Three Soldiers adaptive by volatility. " +
                 "When forming a pattern of three growing / falling candles, " +
@@ -84,9 +72,6 @@ namespace OsEngine.Robots.SoldiersScreener
 
         private void Screener_ParametrsChangeByUser()
         {
-            _tab._indicators[0].Parameters = new List<string>() { Math.Max(PcTSLLength.ValueInt, 10).ToString(), Math.Max(PcTSLLength.ValueInt, 10).ToString() };
-            _tab._indicators[1].Parameters = new List<string>() { superTrandLength.ValueInt.ToString(), superTrandDeviation.ValueDecimal.ToString() };
-
             _tab.UpdateIndicatorsParameters();
         }
 
@@ -110,10 +95,7 @@ namespace OsEngine.Robots.SoldiersScreener
         public StrategyParameterDecimal ProcHeightStop;
         public StrategyParameterDecimal TrailingStopRepcent;
         public StrategyParameterInt ExitAtBarCount;
-        public StrategyParameterInt PcTSLLength; // price channel for trailing stop loss
         public StrategyParameterDecimal MaxStopLossPercent;
-        private StrategyParameterInt superTrandLength;
-        private StrategyParameterDecimal superTrandDeviation;
         public StrategyParameterDecimal Slippage;
 
         public StrategyParameterInt DaysVolatilityAdaptive;
@@ -333,16 +315,6 @@ namespace OsEngine.Robots.SoldiersScreener
             if (candles.Count < 5)
                 return;
 
-            Aindicator superTrand = (Aindicator)tab.Indicators[1];
-            if (superTrand.ParametersDigit[0].Value != superTrandLength.ValueInt ||
-                superTrand.ParametersDigit[1].Value != superTrandDeviation.ValueDecimal)
-            {
-                superTrand.ParametersDigit[0].Value = superTrandLength.ValueInt;
-                superTrand.ParametersDigit[1].Value = superTrandDeviation.ValueDecimal;
-                superTrand.Save();
-                superTrand.Reload();
-            }
-
             List<Position> openPositions = tab.PositionsOpenAll;
 
             if (openPositions == null || openPositions.Count == 0)
@@ -436,11 +408,6 @@ namespace OsEngine.Robots.SoldiersScreener
         private decimal GetStopLossPrice(Side direction, List<Candle> candles, BotTabSimple tab)
         {
             decimal _lastPrice = candles[candles.Count - 1].Close;
-            Aindicator priceChannel = (Aindicator)tab.Indicators[0];
-            Aindicator superTrand = (Aindicator)tab.Indicators[1];
-            decimal pcUpTSL = PcTSLLength.ValueInt > 0 ? priceChannel.DataSeries[0].Last : 0m;
-            decimal pcDownTSL = PcTSLLength.ValueInt > 0 ? priceChannel.DataSeries[1].Last : 0m;
-            decimal lastSuperTrand = superTrand.DataSeries[2].Last;
             decimal priceStop = 0m;
             if (direction == Side.Buy)
             {
@@ -453,10 +420,6 @@ namespace OsEngine.Robots.SoldiersScreener
                 if (TrailingStopRepcent.ValueDecimal != 0)
                 {
                     priceStop = Math.Max(_lastPrice - _lastPrice * (TrailingStopRepcent.ValueDecimal / 100), priceStop);
-                }
-                else if (lastSuperTrand != 0)
-                {
-                    priceStop = lastSuperTrand;
                 }
             }
             else
@@ -471,10 +434,6 @@ namespace OsEngine.Robots.SoldiersScreener
                 {
                     priceStop = _lastPrice + _lastPrice * (TrailingStopRepcent.ValueDecimal / 100);
                 }
-                else if (pcUpTSL != 0)
-                {
-                    priceStop = pcUpTSL;
-                }
             }
             return priceStop;
         }
@@ -482,12 +441,6 @@ namespace OsEngine.Robots.SoldiersScreener
         private void LogicClosePosition(List<Candle> candles, BotTabSimple tab, SecuritiesTradeSettings settings)
         {
             decimal _lastPrice = candles[candles.Count - 1].Close;
-            Aindicator priceChannel = (Aindicator)tab.Indicators[0];
-            Aindicator superTrand = (Aindicator)tab.Indicators[1];
-            decimal pcUpTSL = PcTSLLength.ValueInt > 0 ? priceChannel.DataSeries[0].Last : 0m;
-            decimal pcDownTSL = PcTSLLength.ValueInt > 0 ? priceChannel.DataSeries[1].Last : 0m;
-            decimal lastSuperTrand = superTrand.DataSeries[2].Last;
-
             List<Position> openPositions = tab.PositionsOpenAll;
             for (int i = 0; openPositions != null && i < openPositions.Count; i++)
             {
@@ -533,13 +486,6 @@ namespace OsEngine.Robots.SoldiersScreener
                         if (priceStop > position.EntryPrice)
                             tab.CloseAtTrailingStop(position, priceStop, priceStop - priceStop * (Slippage.ValueDecimal / 100));
                     }
-                    else
-                    {
-                        //if (pcDownTSL != 0)
-                        //    tab.CloseAtTrailingStop(position, pcDownTSL, pcDownTSL - pcDownTSL * (Slippage.ValueDecimal / 100));
-                        if (lastSuperTrand != 0)
-                            tab.CloseAtTrailingStop(position, lastSuperTrand, lastSuperTrand - lastSuperTrand * (Slippage.ValueDecimal / 100));
-                    }
                 }
                 else
                 {
@@ -558,11 +504,6 @@ namespace OsEngine.Robots.SoldiersScreener
                         decimal priceStop = _lastPrice + _lastPrice * (TrailingStopRepcent.ValueDecimal / 100);
                         if (priceStop < position.EntryPrice)
                             tab.CloseAtTrailingStop(position, priceStop, priceStop + priceStop * (Slippage.ValueDecimal / 100));
-                    }
-                    else
-                    {
-                        if (pcUpTSL != 0)
-                            tab.CloseAtTrailingStop(position, pcUpTSL, pcUpTSL + pcUpTSL * (Slippage.ValueDecimal / 100));
                     }
                 }
             }
