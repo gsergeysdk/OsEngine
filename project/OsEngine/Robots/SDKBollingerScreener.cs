@@ -21,13 +21,22 @@ namespace OsEngine.Robots.Screeners
         private StrategyParameterInt _bollingerLen;
         private StrategyParameterDecimal _bollingerDev;
 
+        private StrategyParameterDecimal minBollingerDev;
+        private StrategyParameterDecimal maxBollingerDev;
+
         // Exit setting
         private StrategyParameterDecimal _trailStop;
-        public StrategyParameterInt PriceChannelLength;
+        public StrategyParameterInt priceChannelLength;
+        public StrategyParameterBool stopByBollinger;
         private StrategyParameterDecimal _takeProfit;
 
         public StrategyParameterBool SmaFilterIsOn;
         public StrategyParameterInt SmaFilterLen;
+
+        public StrategyParameterBool trandFilterIsOn;
+        private StrategyParameterInt trandPeriodFast;
+        private StrategyParameterInt trandPeriodSlow;
+        private StrategyParameterInt trandCounter;
 
         private StrategyParameterTimeOfDay TimeStart;
         private StrategyParameterTimeOfDay TimeEnd;
@@ -46,6 +55,7 @@ namespace OsEngine.Robots.Screeners
             // Create indicator Bollinger
             _tabScreener.CreateCandleIndicator(1, "Bollinger", new List<string>() { "100", "2" }, "Prime");
             _tabScreener.CreateCandleIndicator(2, "PriceChannel", new List<string>() { "10", "10" }, "Prime");
+            _tabScreener.CreateCandleIndicator(3, "TrandPhaseDema", new List<string>() { "200", "600", "10" }, "Trand");
 
             _regime = CreateParameter("Regime", "Off", new[] { "Off", "On", "OnlyClosePosition" });
             _maxPositions = CreateParameter("Max positions", 5, 0, 20, 1);
@@ -56,15 +66,22 @@ namespace OsEngine.Robots.Screeners
             // Indicator settings
             _bollingerLen = CreateParameter("Bollinger length", 50, 0, 20, 1);
             _bollingerDev = CreateParameter("Bollinger deviation", 2m, 0, 20, 1m);
+            minBollingerDev = CreateParameter("Min Bollinger volitility %", 1m, 0, 1, 0.1m);
+            maxBollingerDev = CreateParameter("Max Bollinger volitility %", 100m, 0, 100, 5m);
 
             // Exit setting
             _trailStop = CreateParameter("Trail stop %", 2.9m, 0, 20, 1m);
-            PriceChannelLength = CreateParameter("Price channel length", 10, 10, 80, 5);
+            priceChannelLength = CreateParameter("Price channel length", 10, 10, 80, 5);
+            stopByBollinger = CreateParameter("Stop by Bollinger", true);
             _takeProfit = CreateParameter("Take profit %", 7m, 0, 20, 1m);
 
             SmaFilterIsOn = CreateParameter("Sma filter is on", true);
             SmaFilterLen = CreateParameter("Sma filter Len", 100, 100, 300, 10);
 
+            trandFilterIsOn = CreateParameter("Trand filter is on", false);
+            trandPeriodFast = CreateParameter("Trand Period Fast", 100, 50, 300, 50);
+            trandPeriodSlow = CreateParameter("Trand Period Slow", 200, 100, 500, 50);
+            trandCounter = CreateParameter("Trand Counter", 10, 10, 50, 10);
 
             volume = new SDKVolume(this);
         }
@@ -139,6 +156,11 @@ namespace OsEngine.Robots.Screeners
                 return;
             }
 
+            if (candles[^1].TimeStart.DayOfWeek < DayOfWeek.Sunday ||
+                candles[^1].TimeStart.DayOfWeek > DayOfWeek.Friday)
+                return;
+
+
             if (TimeStart.Value > tab.TimeServerCurrent ||
                 TimeEnd.Value < tab.TimeServerCurrent)
             {
@@ -146,7 +168,7 @@ namespace OsEngine.Robots.Screeners
             }
 
             decimal lastCandleClose = candles[^1].Close;
-            decimal prevCandleClose = candles[^2].Close;
+            decimal lastCandleOpen = candles[^1].Open;
 
             Aindicator bollinger = (Aindicator)tab.Indicators[0];
 
@@ -159,16 +181,44 @@ namespace OsEngine.Robots.Screeners
                 bollinger.Reload();
             }
 
+            Aindicator trand = (Aindicator)tab.Indicators[2];
+
+            if (trand.ParametersDigit[0].Value != trandPeriodFast.ValueInt
+                || trand.ParametersDigit[1].Value != trandPeriodSlow.ValueInt
+                || trand.ParametersDigit[2].Value != trandCounter.ValueInt)
+            {
+                trand.ParametersDigit[0].Value = trandPeriodFast.ValueInt;
+                trand.ParametersDigit[1].Value = trandPeriodSlow.ValueInt;
+                trand.ParametersDigit[2].Value = trandCounter.ValueInt;
+                trand.Save();
+                trand.Reload();
+            }
+
             if (bollinger.DataSeries[0].Values.Count == 0 ||
                 bollinger.DataSeries[0].Last == 0)
             {
                 return;
             }
 
-            decimal lastUpBollingerLine = bollinger.DataSeries[0].Last;
-            decimal prevUpBollingerLine = bollinger.DataSeries[0].Values[^2];
+            decimal trandUp = trand.DataSeries[0].Last;
+            decimal trandDown = trand.DataSeries[1].Last;
 
-            if (lastCandleClose > lastUpBollingerLine && prevCandleClose < prevUpBollingerLine)
+            if (trandFilterIsOn && trandDown > 0)
+                return;
+            if (trandFilterIsOn && trandUp <= 0)
+                return;
+
+            decimal lastUpBollingerLine = bollinger.DataSeries[0].Last;
+            //decimal prevUpBollingerLine = bollinger.DataSeries[0].Values[^2];
+            decimal lastDownBollingerLine = bollinger.DataSeries[1].Last;
+            //decimal prevDownBollingerLine = bollinger.DataSeries[1].Values[^2];
+
+            if (lastUpBollingerLine < lastDownBollingerLine * (1m + minBollingerDev.ValueDecimal / 100m))
+                return;
+            if (lastUpBollingerLine > lastDownBollingerLine * (1m + maxBollingerDev.ValueDecimal / 100m))
+                return;
+
+            if (lastCandleClose > lastUpBollingerLine && lastCandleOpen < lastUpBollingerLine)
             {
                 if (SmaFilterIsOn.ValueBool == true)
                 {
@@ -204,28 +254,45 @@ namespace OsEngine.Robots.Screeners
 
             Aindicator pc = (Aindicator)tab.Indicators[1];
 
-            if (PriceChannelLength.ValueInt != pc.ParametersDigit[0].Value ||
-                PriceChannelLength.ValueInt != pc.ParametersDigit[1].Value)
+            if (priceChannelLength.ValueInt != pc.ParametersDigit[0].Value ||
+                priceChannelLength.ValueInt != pc.ParametersDigit[1].Value)
             {
-                pc.ParametersDigit[0].Value = PriceChannelLength.ValueInt;
-                pc.ParametersDigit[1].Value = PriceChannelLength.ValueInt;
+                pc.ParametersDigit[0].Value = priceChannelLength.ValueInt;
+                pc.ParametersDigit[1].Value = priceChannelLength.ValueInt;
                 pc.Save();
                 pc.Reload();
             }
 
+            Aindicator bollinger = (Aindicator)tab.Indicators[0];
+            decimal lastDownBollingerLine = bollinger.DataSeries[1].Last;
+
             decimal lastClose = candles[^1].Close;
-            decimal priceChannelDown = pc.DataSeries[1].Values[^2];
-            decimal priceChannelTrail = priceChannelDown > position.EntryPrice ? (position.EntryPrice + priceChannelDown) / 2m : 0m;
+            decimal priceChannelDown = 0;
+            //decimal priceChannelTrail = 0;
+            if (priceChannelLength.ValueInt > 1)
+            {
+                priceChannelDown = pc.DataSeries[1].Values[^2];
+                priceChannelDown -= priceChannelDown * (0.5m / 100m); // -0.5 % ;
+                //priceChannelDown = priceChannelDown > position.EntryPrice ? (position.EntryPrice + priceChannelDown) / 2m : priceChannelDown;
+            }
 
             decimal stop = 0;
 
-            if (position.Direction == Side.Buy)
-            {
-                if (position.StopOrderPrice == 0m)
-                    stop = priceChannelDown - priceChannelDown * (0.5m / 100m); // -0.5 % 
-                else
-                    stop = Math.Max(priceChannelTrail, lastClose - lastClose * (_trailStop.ValueDecimal / 100));
-            }
+            if (stopByBollinger.ValueBool)
+                stop = lastDownBollingerLine * 0.995m; // -0.5 % ;
+
+            if (_trailStop.ValueDecimal != 0m)
+                stop = Math.Max(priceChannelDown, Math.Max(stop, lastClose - lastClose * (_trailStop.ValueDecimal / 100)));
+            else
+                stop = Math.Max(priceChannelDown, stop);
+
+            //if (position.Direction == Side.Buy)
+            //{
+            //    if (position.StopOrderPrice == 0m)
+            //        stop = priceChannelDown;// - priceChannelDown * (0.5m / 100m); // -0.5 % 
+            //    else
+            //        stop = Math.Max(priceChannelTrail, lastClose - lastClose * (_trailStop.ValueDecimal / 100));
+            //}
 
 
             tab.CloseAtTrailingStopMarket(position, stop);
