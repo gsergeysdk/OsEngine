@@ -55,7 +55,7 @@ namespace OsEngine.Robots
                         volume = Volume.ValueDecimal / (contractPrice * tab.Security.Lot);
                     }
 
-                    volume = Math.Round(volume, tab.Security.DecimalsVolume);
+                    volume = Math.Round(volume, tab.Security.DecimalsVolume, MidpointRounding.ToNegativeInfinity);
                 }
                 else // Tester or Optimizer
                 {
@@ -111,7 +111,7 @@ namespace OsEngine.Robots
                     if (tab.Security.DecimalsVolume == 0)
                         qty = (int)qty;
                     else
-                        qty = Math.Round(qty, tab.Security.DecimalsVolume);
+                        qty = Math.Round(qty, tab.Security.DecimalsVolume, MidpointRounding.ToNegativeInfinity);
                 }
                 else
                 {
