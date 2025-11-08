@@ -29,6 +29,8 @@ namespace OsEngine.Robots.SoldiersScreener
             Regime = CreateParameter("Regime", "Off", new[] { "Off", "On", "OnlyLong", "OnlyShort" });
             MaxPositions = CreateParameter("Max positions", 5, 0, 20, 1);
             Slippage = CreateParameter("Slippage %", 0, 0, 20, 1m);
+            TimeStart = CreateParameterTimeOfDay("Start Trade Time", 7, 35, 0, 0);
+            TimeEnd = CreateParameterTimeOfDay("End Trade Time", 22, 25, 0, 0);
             ProcHeightTake = CreateParameter("Profit % from height of pattern", 50m, 0, 20, 1m);
             ProcHeightStop = CreateParameter("Stop % from height of pattern", 20m, 0, 20, 1m);
             TrailingStopRepcent = CreateParameter("Trailing stop %", 20m, 0, 20, 1m);
@@ -105,6 +107,9 @@ namespace OsEngine.Robots.SoldiersScreener
 
         public StrategyParameterBool SmaFilterIsOn;
         public StrategyParameterInt SmaFilterLen;
+
+        private StrategyParameterTimeOfDay TimeStart;
+        private StrategyParameterTimeOfDay TimeEnd;
 
         public SDKVolume volume;
 
@@ -329,6 +334,14 @@ namespace OsEngine.Robots.SoldiersScreener
                 return;
 
             if (candles[candles.Count - 3].TimeStart.Day != candles[candles.Count - 1].TimeStart.Day)
+                return;
+
+            if (candles[^1].TimeStart.DayOfWeek < DayOfWeek.Sunday ||
+                candles[^1].TimeStart.DayOfWeek > DayOfWeek.Friday)
+                return;
+
+            if (TimeStart.Value > tab.TimeServerCurrent ||
+                TimeEnd.Value < tab.TimeServerCurrent)
                 return;
 
             decimal _lastPrice = candles[candles.Count - 1].Close;
