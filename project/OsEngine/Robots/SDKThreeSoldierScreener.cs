@@ -17,6 +17,39 @@ namespace OsEngine.Robots.SoldiersScreener
     [Bot("SDKThreeSoldierScreener")]
     public class SDKThreeSoldierScreener : BotPanel
     {
+        private BotTabScreener _tab;
+
+        // settings
+        public StrategyParameterString Regime;
+        public StrategyParameterInt MaxPositions;
+        public StrategyParameterDecimal ProcHeightTake;
+        public StrategyParameterDecimal ProcHeightStop;
+        public StrategyParameterDecimal TrailingStopRepcent;
+        public StrategyParameterInt ExitAtBarCount;
+        public StrategyParameterDecimal MaxStopLossPercent;
+        public StrategyParameterDecimal Slippage;
+
+        public StrategyParameterInt DaysVolatilityAdaptive;
+        public StrategyParameterDecimal HeightSoldiersVolaPecrent;
+        public StrategyParameterDecimal MinHeightOneSoldiersVolaPecrent;
+        public StrategyParameterDecimal MaxHeightPatternPercent;
+
+        public StrategyParameterBool SmaFilterIsOn;
+        public StrategyParameterInt SmaFilterLen;
+
+        private StrategyParameterTimeOfDay TimeStart;
+        private StrategyParameterTimeOfDay TimeEnd;
+
+        // Trade periods
+        private NonTradePeriods _tradePeriodsSettings;
+        private StrategyParameterButton _tradePeriodsShowDialogButton;
+
+        public SDKVolume volume;
+
+        // volatility adaptation
+
+        private List<SecuritiesTradeSettings> _tradeSettings = new List<SecuritiesTradeSettings>();
+
         public SDKThreeSoldierScreener(string name, StartProgram startProgram)
             : base(name, startProgram)
         {
@@ -43,6 +76,12 @@ namespace OsEngine.Robots.SoldiersScreener
             SmaFilterIsOn = CreateParameter("Sma filter is on", true);
             SmaFilterLen = CreateParameter("Sma filter Len", 100, 100, 300, 10);
             volume = new SDKVolume(this);
+
+            _tradePeriodsSettings = new NonTradePeriods(name);
+            _tradePeriodsSettings.Load();
+            _tradePeriodsShowDialogButton = CreateParameterButton("Non trade periods");
+            _tradePeriodsShowDialogButton.UserClickOnButtonEvent += _tradePeriodsShowDialogButton_UserClickOnButtonEvent;
+
 
             Description = "Trading robot Three Soldiers adaptive by volatility. " +
                 "When forming a pattern of three growing / falling candles, " +
@@ -77,6 +116,11 @@ namespace OsEngine.Robots.SoldiersScreener
             _tab.UpdateIndicatorsParameters();
         }
 
+        private void _tradePeriodsShowDialogButton_UserClickOnButtonEvent()
+        {
+            _tradePeriodsSettings.ShowDialog();
+        }
+
         public override string GetNameStrategyType()
         {
             return "SDKThreeSoldierScreener";
@@ -86,36 +130,6 @@ namespace OsEngine.Robots.SoldiersScreener
         {
 
         }
-
-        private BotTabScreener _tab;
-
-        // settings
-
-        public StrategyParameterString Regime;
-        public StrategyParameterInt MaxPositions;
-        public StrategyParameterDecimal ProcHeightTake;
-        public StrategyParameterDecimal ProcHeightStop;
-        public StrategyParameterDecimal TrailingStopRepcent;
-        public StrategyParameterInt ExitAtBarCount;
-        public StrategyParameterDecimal MaxStopLossPercent;
-        public StrategyParameterDecimal Slippage;
-
-        public StrategyParameterInt DaysVolatilityAdaptive;
-        public StrategyParameterDecimal HeightSoldiersVolaPecrent;
-        public StrategyParameterDecimal MinHeightOneSoldiersVolaPecrent;
-        public StrategyParameterDecimal MaxHeightPatternPercent;
-
-        public StrategyParameterBool SmaFilterIsOn;
-        public StrategyParameterInt SmaFilterLen;
-
-        private StrategyParameterTimeOfDay TimeStart;
-        private StrategyParameterTimeOfDay TimeEnd;
-
-        public SDKVolume volume;
-
-        // volatility adaptation
-
-        private List<SecuritiesTradeSettings> _tradeSettings = new List<SecuritiesTradeSettings>();
 
         private void SaveTradeSettings()
         {
@@ -286,6 +300,11 @@ namespace OsEngine.Robots.SoldiersScreener
         {
             SecuritiesTradeSettings mySettings = getSettings(tab);
 
+            if (_tradePeriodsSettings.CanTradeThisTime(candles[^1].TimeStart) == false)
+            {
+                return;
+            }
+
             if (mySettings == null)
                 return;
 
@@ -302,6 +321,10 @@ namespace OsEngine.Robots.SoldiersScreener
 
         private void _tab_CandleUpdateEvent(List<Candle> candles, BotTabSimple tab)
         {
+            if (_tradePeriodsSettings.CanTradeThisTime(candles[^1].TimeStart) == false)
+            {
+                return;
+            }
             List<Position> openPositions = tab.PositionsOpenAll;
             if (openPositions != null && openPositions.Count != 0 && tab.StartProgram == StartProgram.IsOsTrader)
             {
