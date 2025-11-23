@@ -27,6 +27,8 @@ namespace OsEngine.Robots
         private StrategyParameterTimeOfDay TimeStart;
         private StrategyParameterTimeOfDay TimeEnd;
 
+        private StrategyParameterBool showErrorMessage;
+
         public SDKLQDT(string name, StartProgram startProgram) : base(name, startProgram)
         {
             TabCreate(BotTabType.Simple);
@@ -40,6 +42,8 @@ namespace OsEngine.Robots
 
             TimeStart = CreateParameterTimeOfDay("Start Trade Time", 22, 35, 0, 0);
             TimeEnd = CreateParameterTimeOfDay("End Trade Time", 23, 45, 0, 0);
+
+            showErrorMessage = CreateParameter("Show Error Message", false);
 
             // Subscribe to the indicator update event
             ParametrsChangeByUser += _ParametrsChangeByUser;
@@ -88,7 +92,8 @@ namespace OsEngine.Robots
 
             if (myPortfolio == null)
             {
-                SendNewLogMessage("No portfolio, exit!!!", Logging.LogMessageType.Error);
+                if (showErrorMessage.ValueBool)
+                    SendNewLogMessage("No portfolio, exit!!!", Logging.LogMessageType.Error);
                 return;
             }
 
@@ -96,7 +101,8 @@ namespace OsEngine.Robots
 
             if (positionOnBoard == null)
             {
-                SendNewLogMessage("No posions in portfolio, exit!!!", Logging.LogMessageType.Error);
+                if (showErrorMessage.ValueBool)
+                    SendNewLogMessage("No posions in portfolio, exit!!!", Logging.LogMessageType.Error);
                 return;
             }
 
@@ -124,7 +130,8 @@ namespace OsEngine.Robots
 
             if (fullMoney < 0 && lqdtMoney < -fullMoney)
             {
-                SendNewLogMessage("Not enough quantity for sale !!!", Logging.LogMessageType.Error);
+                if (showErrorMessage.ValueBool)
+                    SendNewLogMessage("Not enough quantity for sale !!!", Logging.LogMessageType.Error);
                 qty = lqdtCount;
             }
 
