@@ -38,8 +38,9 @@ namespace OsEngine.Robots.Screeners
         private StrategyParameterInt trandPeriodSlow;
         private StrategyParameterInt trandCounter;
 
-        private StrategyParameterTimeOfDay TimeStart;
-        private StrategyParameterTimeOfDay TimeEnd;
+        // Trade periods
+        private NonTradePeriods _tradePeriodsSettings;
+        private StrategyParameterButton _tradePeriodsShowDialogButton;
 
         public SDKVolume volume;
 
@@ -59,9 +60,6 @@ namespace OsEngine.Robots.Screeners
 
             _regime = CreateParameter("Regime", "Off", new[] { "Off", "On", "OnlyClosePosition" });
             _maxPositions = CreateParameter("Max positions", 5, 0, 20, 1);
-
-            TimeStart = CreateParameterTimeOfDay("Start Trade Time", 7, 35, 0, 0);
-            TimeEnd = CreateParameterTimeOfDay("End Trade Time", 22, 25, 0, 0);
 
             // Indicator settings
             _bollingerLen = CreateParameter("Bollinger length", 50, 0, 20, 1);
@@ -84,6 +82,11 @@ namespace OsEngine.Robots.Screeners
             trandCounter = CreateParameter("Trand Counter", 10, 10, 50, 10);
 
             volume = new SDKVolume(this);
+
+            _tradePeriodsSettings = new NonTradePeriods(name);
+            _tradePeriodsSettings.Load();
+            _tradePeriodsShowDialogButton = CreateParameterButton("Non trade periods");
+            _tradePeriodsShowDialogButton.UserClickOnButtonEvent += _tradePeriodsShowDialogButton_UserClickOnButtonEvent;
         }
 
         // The name of the robot in OsEngine
@@ -97,12 +100,21 @@ namespace OsEngine.Robots.Screeners
         {
 
         }
+        private void _tradePeriodsShowDialogButton_UserClickOnButtonEvent()
+        {
+            _tradePeriodsSettings.ShowDialog();
+        }
 
         // logic
 
         private void _screenerTab_CandleUpdateEvent(List<Candle> candles, BotTabSimple tab)
         {
             if (_regime.ValueString == "Off")
+            {
+                return;
+            }
+
+            if (_tradePeriodsSettings.CanTradeThisTime(candles[^1].TimeStart) == false)
             {
                 return;
             }
@@ -123,6 +135,11 @@ namespace OsEngine.Robots.Screeners
         private void _screenerTab_CandleFinishedEvent(List<Candle> candles, BotTabSimple tab)
         {
             if (_regime.ValueString == "Off")
+            {
+                return;
+            }
+
+            if (_tradePeriodsSettings.CanTradeThisTime(candles[^1].TimeStart) == false)
             {
                 return;
             }
@@ -152,17 +169,6 @@ namespace OsEngine.Robots.Screeners
         private void LogicOpenPosition(List<Candle> candles, BotTabSimple tab)
         {
             if (_tabScreener.PositionsOpenAll.Count >= _maxPositions.ValueInt)
-            {
-                return;
-            }
-
-            if (candles[^1].TimeStart.DayOfWeek < DayOfWeek.Sunday ||
-                candles[^1].TimeStart.DayOfWeek > DayOfWeek.Friday)
-                return;
-
-
-            if (TimeStart.Value > tab.TimeServerCurrent ||
-                TimeEnd.Value < tab.TimeServerCurrent)
             {
                 return;
             }

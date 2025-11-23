@@ -1,15 +1,16 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using OsEngine.Attributes;
 using OsEngine.Entity;
-using OsEngine.Market.Servers;
+using OsEngine.Indicators;
 using OsEngine.Market;
+using OsEngine.Market.Servers;
+using OsEngine.Market.Servers.Tester;
 using OsEngine.OsTrader.Panels;
 using OsEngine.OsTrader.Panels.Attributes;
 using OsEngine.OsTrader.Panels.Tab;
-using System.IO;
+using System;
+using System.Collections.Generic;
 using System.Globalization;
-using OsEngine.Indicators;
-using OsEngine.Market.Servers.Tester;
+using System.IO;
 
 namespace OsEngine.Robots
 {
@@ -19,31 +20,32 @@ namespace OsEngine.Robots
         private BotTabSimple _tab;
 
         // Basic Settings
+        [Parameter("Off", new[] { "Off", "On" })]
         private StrategyParameterString Regime;
+        [Parameter("TMON@")]
         public StrategyParameterString TradeAssetInPortfolio;
+        [Parameter(0.1, 0, 20, 1)]
         private StrategyParameterDecimal Slippage;
+        [Parameter(500.0, "Max count lots for trade")]
         private StrategyParameterDecimal maxCountForTrade;
 
-        private StrategyParameterTimeOfDay TimeStart;
-        private StrategyParameterTimeOfDay TimeEnd;
-
+        [Parameter(false)]
         private StrategyParameterBool showErrorMessage;
+
+        // Trade periods
+        private NonTradePeriods _tradePeriodsSettings;
+        private StrategyParameterButton _tradePeriodsShowDialogButton;
 
         public SDKLQDT(string name, StartProgram startProgram) : base(name, startProgram)
         {
             TabCreate(BotTabType.Simple);
             _tab = TabsSimple[0];
 
-            // Basic setting
-            Regime = CreateParameter("Regime", "Off", new[] { "Off", "On"});
-            TradeAssetInPortfolio = CreateParameter("Asset in portfolio", "TMON@");
-            Slippage = CreateParameter("Slippage steps", 0.1m, 0, 20, 1);
-            maxCountForTrade = CreateParameter("Max count lots for trade", 10m, 0, 20, 1);
+            _tradePeriodsSettings = new NonTradePeriods(name);
+            _tradePeriodsSettings.Load();
 
-            TimeStart = CreateParameterTimeOfDay("Start Trade Time", 22, 35, 0, 0);
-            TimeEnd = CreateParameterTimeOfDay("End Trade Time", 23, 45, 0, 0);
-
-            showErrorMessage = CreateParameter("Show Error Message", false);
+            _tradePeriodsShowDialogButton = CreateParameterButton("Non trade periods");
+            _tradePeriodsShowDialogButton.UserClickOnButtonEvent += _tradePeriodsShowDialogButton_UserClickOnButtonEvent;
 
             // Subscribe to the indicator update event
             ParametrsChangeByUser += _ParametrsChangeByUser;
@@ -53,6 +55,11 @@ namespace OsEngine.Robots
 
             // Subscribe to the candle finished event
             _tab.CandleFinishedEvent += _tab_CandleFinishedEvent;
+        }
+
+        private void _tradePeriodsShowDialogButton_UserClickOnButtonEvent()
+        {
+            _tradePeriodsSettings.ShowDialog();
         }
 
         private void _ParametrsChangeByUser()
@@ -80,13 +87,10 @@ namespace OsEngine.Robots
             if (Regime.ValueString == "Off")
                 return;
 
-            if (candles[^1].TimeStart.DayOfWeek < DayOfWeek.Monday ||
-                candles[^1].TimeStart.DayOfWeek > DayOfWeek.Friday)
+            if (_tradePeriodsSettings.CanTradeThisTime(candles[^1].TimeStart) == false)
+            {
                 return;
-
-            if (TimeStart.Value > _tab.TimeServerCurrent ||
-                TimeEnd.Value < _tab.TimeServerCurrent)
-                return;
+            }
 
             Portfolio myPortfolio = _tab.Portfolio;
 
