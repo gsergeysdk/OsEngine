@@ -22,7 +22,7 @@ namespace OsEngine.Robots
         // Basic Settings
         [Parameter("Off", new[] { "Off", "On" })]
         private StrategyParameterString Regime;
-        [Parameter("TMON@")]
+        [Parameter("rub")]
         public StrategyParameterString TradeAssetInPortfolio;
         [Parameter(0.1, 0, 20, 1)]
         private StrategyParameterDecimal Slippage;
