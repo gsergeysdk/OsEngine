@@ -133,7 +133,7 @@ namespace OsEngine.Robots.AlgoStart
                 return;
             }
 
-            if (_tradePeriodsSettings.CanTradeThisTime(candles[^1].TimeStart) == false)
+            if (_tradePeriodsSettings.CanTradeThisTime(tab.TimeServerCurrent) == false)
             {
                 return;
             }
@@ -237,9 +237,9 @@ namespace OsEngine.Robots.AlgoStart
         private void LogicClosePosition(List<Candle> candles, BotTabSimple tab, Position position)
         {
             if (position.State != PositionStateType.Open
-                          ||
-                          (position.CloseOrders != null
-                          && position.CloseOrders.Count > 0)
+                          //||
+                          //(position.CloseOrders != null
+                          //&& position.CloseOrders.Count > 0)
                           )
             {
                 return;

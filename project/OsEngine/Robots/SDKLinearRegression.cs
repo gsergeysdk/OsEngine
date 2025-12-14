@@ -1,9 +1,4 @@
-﻿/*
- * Your rights to use code governed by this license https://github.com/AlexWan/OsEngine/blob/master/LICENSE
- * Ваши права на использование кода регулируются данной лицензией http://o-s-a.net/doc/license_simple_engine.pdf
-*/
-
-using OsEngine.Entity;
+﻿using OsEngine.Entity;
 using OsEngine.Indicators;
 using OsEngine.Language;
 using OsEngine.Market;
@@ -11,8 +6,11 @@ using OsEngine.Market.Servers;
 using OsEngine.OsTrader.Panels;
 using OsEngine.OsTrader.Panels.Attributes;
 using OsEngine.OsTrader.Panels.Tab;
+using OsEngine.Properties;
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement;
 
 /* Description
 Trading robot for osEngine
@@ -27,10 +25,10 @@ Exit for long: When the Linear Regression Channel bottom line is broken
 
 */
 
-namespace OsEngine.Robots.AlgoStart
+namespace OsEngine.Robots
 {
-    [Bot("AlgoStart1LinearRegression")]
-    public class AlgoStart1LinearRegression : BotPanel
+    [Bot("SDKLinearRegression")]
+    public class SDKLinearRegression : BotPanel
     {
         private BotTabScreener _screenerTab;
 
@@ -40,12 +38,8 @@ namespace OsEngine.Robots.AlgoStart
         private StrategyParameterInt _maxPositionsCount;
         private StrategyParameterInt _clusterToTrade;
         private StrategyParameterInt _clustersLookBack;
+        private StrategyParameterInt _clustersMaxPercent;
        
-        // GetVolume settings
-        private StrategyParameterString _volumeType;
-        private StrategyParameterDecimal _volume;
-        private StrategyParameterString _tradeAssetInPortfolio;
-
         // Indicator settings
         private StrategyParameterInt _lrLength;
         private StrategyParameterDecimal _lrDeviation;
@@ -60,13 +54,15 @@ namespace OsEngine.Robots.AlgoStart
         private NonTradePeriods _tradePeriodsSettings;
         private StrategyParameterButton _tradePeriodsShowDialogButton;
 
-        public AlgoStart1LinearRegression(string name, StartProgram startProgram) : base(name, startProgram)
+        public SDKVolume volume;
+
+        public SDKLinearRegression(string name, StartProgram startProgram) : base(name, startProgram)
         {
 
             // non trade periods
             _tradePeriodsSettings = new NonTradePeriods(name);
 
-            _tradePeriodsSettings.NonTradePeriodGeneral.NonTradePeriod1Start = new TimeOfDay() { Hour = 0, Minute = 0 };
+            _tradePeriodsSettings.NonTradePeriodGeneral.NonTradePeriod1Start = new TimeOfDay() { Hour = 5, Minute = 0 };
             _tradePeriodsSettings.NonTradePeriodGeneral.NonTradePeriod1End = new TimeOfDay() { Hour = 10, Minute = 05 };
             _tradePeriodsSettings.NonTradePeriodGeneral.NonTradePeriod1OnOff = true;
 
@@ -96,14 +92,10 @@ namespace OsEngine.Robots.AlgoStart
             _icebergCount = CreateParameter("Iceberg orders count", 1, 1, 3, 1);
             _clusterToTrade = CreateParameter("Volatility cluster to trade", 1, 1, 3, 1);
             _clustersLookBack = CreateParameter("Volatility cluster lookBack", 30, 10, 300, 1);
+            _clustersMaxPercent = CreateParameter("Volatility cluster maxPercent", 10, 0, 20, 1);
             _maxPositionsCount = CreateParameter("Max positions ", 10, 1, 50, 4);
             _tradePeriodsShowDialogButton = CreateParameterButton("Non trade periods");
             _tradePeriodsShowDialogButton.UserClickOnButtonEvent += _tradePeriodsShowDialogButton_UserClickOnButtonEvent;
-
-             // GetVolume settings
-            _volumeType = CreateParameter("Volume type", "Deposit percent", new[] { "Contracts", "Contract currency", "Deposit percent" });
-            _volume = CreateParameter("Volume", 10, 1.0m, 50, 4);
-            _tradeAssetInPortfolio = CreateParameter("Asset in portfolio", "Prime");
 
             // Indicator settings
             _smaFilterIsOn = CreateParameter("Sma filter is on", true);
@@ -123,6 +115,8 @@ namespace OsEngine.Robots.AlgoStart
 
             Description = OsLocalization.Description.DescriptionLabel324;
             DeleteEvent += AlgoStart1ScreenerLinearRegression_DeleteEvent;
+
+            volume = new SDKVolume(this);
         }
 
         private void AlgoStart1ScreenerLinearRegression_DeleteEvent()
@@ -160,6 +154,74 @@ namespace OsEngine.Robots.AlgoStart
         }
 
         // Logic
+        private void recalculateClusters(DateTime currTime)
+        {
+
+            if (_lastTimeSetClusters == DateTime.MinValue
+             || _lastTimeSetClusters != currTime)
+            {
+                _lastTimeSetClusters = currTime;
+                if (_clustersMaxPercent == 0)
+                    _volatilityStageClusters.Calculate(_screenerTab.Tabs, _clustersLookBack.ValueInt);
+               
+                // перестраиваем кластеры по волатильности от максимальных процентов
+                if (_clustersMaxPercent > 0)
+                {
+                    _volatilityStageClusters.ClusterOne.Clear();
+                    _volatilityStageClusters.ClusterTwo.Clear();
+                    _volatilityStageClusters.ClusterThree.Clear();
+
+                    List<SourceVolatility> sourcesWithCandles = new List<SourceVolatility>();
+
+                    for (int i = 0; i < _screenerTab.Tabs.Count; i++)
+                    {
+                        List<Candle> candles = _screenerTab.Tabs[i].CandlesFinishedOnly;
+
+                        if (candles == null
+                            || candles.Count == 0)
+                        {
+                            continue;
+                        }
+
+                        SourceVolatility newVola = new SourceVolatility();
+                        newVola.Tab = _screenerTab.Tabs[i];
+                        newVola.Candles = _screenerTab.Tabs[i].CandlesAll;
+                        newVola.Calculate(_clustersLookBack.ValueInt);
+
+                        sourcesWithCandles.Add(newVola);
+                    }
+
+                    if (sourcesWithCandles.Count <= 1)
+                    {
+                        return;
+                    }
+
+                    sourcesWithCandles = sourcesWithCandles.OrderBy(x => x.Volatility).ToList();
+
+                    decimal clusterOneVolatility = _volatilityStageClusters.ClusterOnePercent * _clustersMaxPercent / 100;
+                    decimal clusterTwoVolatility = (_volatilityStageClusters.ClusterOnePercent + _volatilityStageClusters.ClusterTwoPercent) *
+                        _clustersMaxPercent / 100;
+
+                    for (int i = 0; i < sourcesWithCandles.Count; i++)
+                    {
+                        if (sourcesWithCandles[i].Volatility <= clusterOneVolatility)
+                        {
+                            _volatilityStageClusters.ClusterOne.Add(sourcesWithCandles[i].Tab);
+                        }
+                        else if (sourcesWithCandles[i].Volatility <= clusterTwoVolatility)
+                        {
+                            _volatilityStageClusters.ClusterTwo.Add(sourcesWithCandles[i].Tab);
+                        }
+                        else
+                        {
+                            _volatilityStageClusters.ClusterThree.Add(sourcesWithCandles[i].Tab);
+                        }
+                    }
+
+                }
+            }
+        }
+
         private void _screenerTab_CandleFinishedEvent(List<Candle> candles, BotTabSimple tab)
         {
             if (_regime.ValueString == "Off")
@@ -182,12 +244,7 @@ namespace OsEngine.Robots.AlgoStart
             if (openPositions.Count == 0
                 && _clusterToTrade.ValueInt != 0)
             {
-                if (_lastTimeSetClusters == DateTime.MinValue
-                 || _lastTimeSetClusters != candles[^1].TimeStart)
-                {
-                    _volatilityStageClusters.Calculate(_screenerTab.Tabs, _clustersLookBack.ValueInt);
-                    _lastTimeSetClusters = candles[^1].TimeStart;
-                }
+                recalculateClusters(candles[^1].TimeStart);
 
                 if (_clusterToTrade.ValueInt == 1)
                 {
@@ -239,21 +296,21 @@ namespace OsEngine.Robots.AlgoStart
                     return;
                 }
 
+                if (_smaFilterIsOn.ValueBool == true)
+                {// Sma filter
+                    Aindicator sma = (Aindicator)tab.Indicators[1];
+
+                    decimal lastSma = sma.DataSeries[0].Values[^1];
+
+                    if (candleClose < lastSma)
+                    {
+                        return;
+                    }
+                }
+
                 if (candleClose > lrUp)
                 {
-                    if (_smaFilterIsOn.ValueBool == true)
-                    {// Sma filter
-                        Aindicator sma = (Aindicator)tab.Indicators[1];
-
-                        decimal lastSma = sma.DataSeries[0].Last;
-
-                        if (candleClose < lastSma)
-                        {
-                            return;
-                        }
-                    }
-
-                    tab.BuyAtIcebergMarket(GetVolume(tab), _icebergCount.ValueInt, 1000);
+                    tab.BuyAtIcebergMarket(volume.GetVolume(tab), _icebergCount.ValueInt, 1000);
                 }
             }
             else // Logic close position
@@ -267,7 +324,8 @@ namespace OsEngine.Robots.AlgoStart
 
                 Aindicator lrIndicator = (Aindicator)tab.Indicators[0];
 
-                decimal lrDown = lrIndicator.DataSeries[2].Last;
+                decimal lrDown = lrIndicator.DataSeries[2].Values[^2];
+                decimal lrUp = lrIndicator.DataSeries[0].Values[^1];
 
                 if (lrDown == 0)
                 {
@@ -275,113 +333,13 @@ namespace OsEngine.Robots.AlgoStart
                 }
 
                 decimal lastClose = candles[^1].Close;
+                decimal lastClose2 = candles[^2].Close;
 
-                if (lastClose <= lrDown)
+                if (lastClose <= lrDown && lastClose2 <= lrDown)
                 {
                     tab.CloseAtIcebergMarket(pos, pos.OpenVolume, _icebergCount.ValueInt, 1000);
                 }
             }
-        }
-
-        // Method for calculating the volume of entry into a position
-        private decimal GetVolume(BotTabSimple tab)
-        {
-            decimal volume = 0;
-
-            if (_volumeType.ValueString == "Contracts")
-            {
-                volume = _volume.ValueDecimal;
-            }
-            else if (_volumeType.ValueString == "Contract currency")
-            {
-                decimal contractPrice = tab.PriceBestAsk;
-                volume = _volume.ValueDecimal / contractPrice;
-
-                if (StartProgram == StartProgram.IsOsTrader)
-                {
-                    IServerPermission serverPermission = ServerMaster.GetServerPermission(tab.Connector.ServerType);
-
-                    if (serverPermission != null &&
-                        serverPermission.IsUseLotToCalculateProfit &&
-                    tab.Security.Lot != 0 &&
-                        tab.Security.Lot > 1)
-                    {
-                        volume = _volume.ValueDecimal / (contractPrice * tab.Security.Lot);
-                    }
-
-                    volume = Math.Round(volume, tab.Security.DecimalsVolume);
-                }
-                else // Tester or Optimizer
-                {
-                    volume = Math.Round(volume, 6);
-                }
-            }
-            else if (_volumeType.ValueString == "Deposit percent")
-            {
-                Portfolio myPortfolio = tab.Portfolio;
-
-                if (myPortfolio == null)
-                {
-                    return 0;
-                }
-
-                decimal portfolioPrimeAsset = 0;
-
-                if (_tradeAssetInPortfolio.ValueString == "Prime")
-                {
-                    portfolioPrimeAsset = myPortfolio.ValueCurrent;
-                }
-                else
-                {
-                    List<PositionOnBoard> positionOnBoard = myPortfolio.GetPositionOnBoard();
-
-                    if (positionOnBoard == null)
-                    {
-                        return 0;
-                    }
-
-                    for (int i = 0; i < positionOnBoard.Count; i++)
-                    {
-                        if (positionOnBoard[i].SecurityNameCode == _tradeAssetInPortfolio.ValueString)
-                        {
-                            portfolioPrimeAsset = positionOnBoard[i].ValueCurrent;
-                            break;
-                        }
-                    }
-                }
-
-                if (portfolioPrimeAsset == 0)
-                {
-                    SendNewLogMessage("Can`t found portfolio " + _tradeAssetInPortfolio.ValueString, Logging.LogMessageType.Error);
-                    return 0;
-                }
-
-                decimal moneyOnPosition = portfolioPrimeAsset * (_volume.ValueDecimal / 100);
-
-                decimal qty = moneyOnPosition / tab.PriceBestAsk / tab.Security.Lot;
-
-                if (tab.StartProgram == StartProgram.IsOsTrader)
-                {
-                    if (tab.Security.UsePriceStepCostToCalculateVolume == true
-                        && tab.Security.PriceStep != tab.Security.PriceStepCost
-                        && tab.PriceBestAsk != 0
-                        && tab.Security.PriceStep != 0
-                        && tab.Security.PriceStepCost != 0)
-                    {// расчёт количества контрактов для фьючерсов и опционов на Мосбирже
-                        qty = moneyOnPosition / (tab.PriceBestAsk / tab.Security.PriceStep * tab.Security.PriceStepCost);
-                    }
-
-                    qty = Math.Round(qty, tab.Security.DecimalsVolume);
-                }
-                else
-                {
-                    qty = Math.Round(qty, 7);
-                }
-
-                return qty;
-            }
-
-            return volume;
         }
     }
 }
