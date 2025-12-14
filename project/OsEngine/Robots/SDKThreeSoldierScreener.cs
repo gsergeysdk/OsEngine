@@ -300,7 +300,7 @@ namespace OsEngine.Robots.SoldiersScreener
         {
             SecuritiesTradeSettings mySettings = getSettings(tab);
 
-            if (_tradePeriodsSettings.CanTradeThisTime(candles[^1].TimeStart) == false)
+            if (_tradePeriodsSettings.CanTradeThisTime(tab.TimeServerCurrent) == false)
             {
                 return;
             }
@@ -321,7 +321,7 @@ namespace OsEngine.Robots.SoldiersScreener
 
         private void _tab_CandleUpdateEvent(List<Candle> candles, BotTabSimple tab)
         {
-            if (_tradePeriodsSettings.CanTradeThisTime(candles[^1].TimeStart) == false)
+            if (_tradePeriodsSettings.CanTradeThisTime(tab.TimeServerCurrent) == false)
             {
                 return;
             }
