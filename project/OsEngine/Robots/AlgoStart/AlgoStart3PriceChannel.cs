@@ -192,7 +192,7 @@ namespace OsEngine.Robots.AlgoStart
                 return;
             }
 
-            if (_tradePeriodsSettings.CanTradeThisTime(candles[^1].TimeStart) == false)
+            if (_tradePeriodsSettings.CanTradeThisTime(tab.TimeServerCurrent) == false)
             {
                 return;
             }
