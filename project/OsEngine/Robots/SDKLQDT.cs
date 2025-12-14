@@ -1,16 +1,10 @@
 ﻿using OsEngine.Attributes;
 using OsEngine.Entity;
-using OsEngine.Indicators;
-using OsEngine.Market;
-using OsEngine.Market.Servers;
-using OsEngine.Market.Servers.Tester;
 using OsEngine.OsTrader.Panels;
 using OsEngine.OsTrader.Panels.Attributes;
 using OsEngine.OsTrader.Panels.Tab;
 using System;
 using System.Collections.Generic;
-using System.Globalization;
-using System.IO;
 
 namespace OsEngine.Robots
 {
@@ -87,7 +81,7 @@ namespace OsEngine.Robots
             if (Regime.ValueString == "Off")
                 return;
 
-            if (_tradePeriodsSettings.CanTradeThisTime(candles[^1].TimeStart) == false)
+            if (_tradePeriodsSettings.CanTradeThisTime(_tab.TimeServerCurrent) == false)
             {
                 return;
             }
