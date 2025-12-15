@@ -3,16 +3,19 @@
  * Ваши права на использование кода регулируются данной лицензией http://o-s-a.net/doc/license_simple_engine.pdf
 */
 
+using OsEngine.Entity;
+using OsEngine.Indicators;
+using OsEngine.Language;
+using OsEngine.Logging;
+using OsEngine.Market;
+using OsEngine.Market.Servers;
+using OsEngine.OsTrader.Panels;
+using OsEngine.OsTrader.Panels.Attributes;
+using OsEngine.OsTrader.Panels.Tab;
 using System;
 using System.Collections.Generic;
-using OsEngine.Entity;
-using OsEngine.Market.Servers;
-using OsEngine.Market;
-using OsEngine.OsTrader.Panels;
-using OsEngine.OsTrader.Panels.Tab;
-using OsEngine.Indicators;
-using OsEngine.OsTrader.Panels.Attributes;
-using OsEngine.Language;
+using System.Drawing;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement;
 
 /* Description
 Trading robot for osengine
@@ -107,6 +110,9 @@ namespace OsEngine.Robots.AlgoStart
             Description = OsLocalization.Description.DescriptionLabel323;
 
             this.DeleteEvent += AlgoStart4ScreenerRailway_DeleteEvent;
+
+            // Subscribe to receive events/commands from Telegram
+            ServerTelegram.GetServer().TelegramCommandEvent += TelegramCommandHandler;
         }
 
         private void AlgoStart4ScreenerRailway_DeleteEvent()
@@ -117,6 +123,65 @@ namespace OsEngine.Robots.AlgoStart
         private void _tradePeriodsShowDialogButton_UserClickOnButtonEvent()
         {
             _tradePeriodsSettings.ShowDialog();
+        }
+
+        private string _lastRegime = BotTradeRegime.Off.ToString();
+        private void TelegramCommandHandler(string botName, Command cmd)
+        {
+            if (botName != null && !_tabScreener.TabName.Equals(botName))
+                return;
+
+            if (cmd == Command.StopAllBots || cmd == Command.StopBot)
+            {
+                _lastRegime = _regime;
+                _regime.ValueString = BotTradeRegime.Off.ToString();
+
+                SendNewLogMessage($"Changed Bot {_tabScreener.TabName} Regime to {_regime.ValueString} " +
+                                  $"by telegram command {cmd}", LogMessageType.User);
+            }
+            else if (cmd == Command.StartAllBots || cmd == Command.StartBot)
+            {
+                if (_lastRegime != BotTradeRegime.Off.ToString())
+                    _regime.ValueString = _lastRegime;
+                else
+                    _regime.ValueString = BotTradeRegime.On.ToString();
+
+                //changing bot mode to its previous state or On
+                SendNewLogMessage($"Changed bot {_tabScreener.TabName} mode to state {_regime.ValueString} " +
+                                  $"by telegram command {cmd}", LogMessageType.User);
+            }
+            else if (cmd == Command.CancelAllActiveOrders)
+            {
+                //Some logic for cancel all active orders
+            }
+            else if (cmd == Command.GetStatus)
+            {
+                List<Journal.Journal> journals = _tabScreener.GetJournals();
+
+                int count = 0;
+                decimal profit = 0;
+                decimal inputs = 0;
+
+                for (int j = 0; j < journals.Count; j++)
+                {
+                    Journal.Journal curJournal = journals[j];
+
+                    for (int i2 = 0; i2 < curJournal.OpenPositions.Count; i2++)
+                    {
+                        Position position = curJournal.OpenPositions[i2];
+                        count++;
+                        profit += position.ProfitPortfolioAbs;
+                        inputs += position.OpenVolume * position.EntryPrice * position.Lots;
+                    }
+                }
+
+                SendNewLogMessage($"\nBot {_tabScreener.TabName} is {_regime.ValueString}.\n" +
+                                  $"Server Status - {(_tabScreener.Tabs.Count > 0 ? _tabScreener.Tabs[0].ServerStatus : "Empty")}.\n" +
+                                  $"Positions count {count}.\n" +
+                                  $"Total invested {inputs.ToString("F2")}.\n" +
+                                  $"Profit for all {profit.ToString("F2")}.\n"
+                                  , LogMessageType.User);
+            }
         }
 
         // logic
