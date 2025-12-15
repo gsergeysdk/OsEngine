@@ -1,15 +1,16 @@
-﻿using System;
-using System.Collections.Generic;
-using OsEngine.Entity;
-using OsEngine.Market.Servers;
+﻿using OsEngine.Entity;
+using OsEngine.Indicators;
+using OsEngine.Logging;
 using OsEngine.Market;
+using OsEngine.Market.Servers;
+using OsEngine.Market.Servers.Tester;
 using OsEngine.OsTrader.Panels;
 using OsEngine.OsTrader.Panels.Attributes;
 using OsEngine.OsTrader.Panels.Tab;
-using System.IO;
+using System;
+using System.Collections.Generic;
 using System.Globalization;
-using OsEngine.Indicators;
-using OsEngine.Market.Servers.Tester;
+using System.IO;
 
 
 namespace OsEngine.Robots.SoldiersScreener
@@ -104,6 +105,9 @@ namespace OsEngine.Robots.SoldiersScreener
 
             this.DeleteEvent += ThreeSoldierAdaptiveScreener_DeleteEvent;
             ParametrsChangeByUser += Screener_ParametrsChangeByUser;
+
+            // Subscribe to receive events/commands from Telegram
+            ServerTelegram.GetServer().TelegramCommandEvent += TelegramCommandHandler;
         }
 
         private void Server_TestingStartEvent()
@@ -197,6 +201,65 @@ namespace OsEngine.Robots.SoldiersScreener
             catch (Exception)
             {
                 // ignore
+            }
+        }
+
+        private string _lastRegime = BotTradeRegime.Off.ToString();
+        private void TelegramCommandHandler(string botName, Command cmd)
+        {
+            if (botName != null && !_tab.TabName.Equals(botName))
+                return;
+
+            if (cmd == Command.StopAllBots || cmd == Command.StopBot)
+            {
+                _lastRegime = Regime;
+                Regime.ValueString = BotTradeRegime.Off.ToString();
+
+                SendNewLogMessage($"Changed Bot {_tab.TabName} Regime to {Regime.ValueString} " +
+                                  $"by telegram command {cmd}", LogMessageType.User);
+            }
+            else if (cmd == Command.StartAllBots || cmd == Command.StartBot)
+            {
+                if (_lastRegime != BotTradeRegime.Off.ToString())
+                    Regime.ValueString = _lastRegime;
+                else
+                    Regime.ValueString = BotTradeRegime.On.ToString();
+
+                //changing bot mode to its previous state or On
+                SendNewLogMessage($"Changed bot {_tab.TabName} mode to state {Regime.ValueString} " +
+                                  $"by telegram command {cmd}", LogMessageType.User);
+            }
+            else if (cmd == Command.CancelAllActiveOrders)
+            {
+                //Some logic for cancel all active orders
+            }
+            else if (cmd == Command.GetStatus)
+            {
+                List<Journal.Journal> journals = _tab.GetJournals();
+
+                int count = 0;
+                decimal profit = 0;
+                decimal inputs = 0;
+
+                for (int j = 0; j < journals.Count; j++)
+                {
+                    Journal.Journal curJournal = journals[j];
+
+                    for (int i2 = 0; i2 < curJournal.OpenPositions.Count; i2++)
+                    {
+                        Position position = curJournal.OpenPositions[i2];
+                        count++;
+                        profit += position.ProfitPortfolioAbs;
+                        inputs += position.OpenVolume * position.EntryPrice * position.Lots;
+                    }
+                }
+
+                SendNewLogMessage($"\nBot {_tab.TabName} is {Regime.ValueString}.\n" +
+                                  $"Server Status - {(_tab.Tabs.Count > 0 ? _tab.Tabs[0].ServerStatus : "Empty")}.\n" +
+                                  $"Positions count {count}.\n" +
+                                  $"Total invested {inputs.ToString("F2")}.\n" +
+                                  $"Profit for all {profit.ToString("F2")}.\n"
+                                  , LogMessageType.User);
             }
         }
 
