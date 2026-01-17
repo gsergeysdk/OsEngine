@@ -1,16 +1,14 @@
 ﻿using OsEngine.Entity;
 using OsEngine.Indicators;
 using OsEngine.Language;
+using OsEngine.Logging;
 using OsEngine.Market;
 using OsEngine.Market.Servers;
 using OsEngine.OsTrader.Panels;
 using OsEngine.OsTrader.Panels.Attributes;
 using OsEngine.OsTrader.Panels.Tab;
-using OsEngine.Properties;
 using System;
 using System.Collections.Generic;
-using System.Linq;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement;
 
 /* Description
 Trading robot for osEngine
@@ -25,7 +23,7 @@ Exit for long: When the Linear Regression Channel bottom line is broken
 
 */
 
-namespace OsEngine.Robots
+namespace OsEngine.Robots.SDKRobots
 {
     [Bot("SDKLinearRegression")]
     public class SDKLinearRegression : BotPanel
@@ -38,8 +36,7 @@ namespace OsEngine.Robots
         private StrategyParameterInt _maxPositionsCount;
         private StrategyParameterInt _clusterToTrade;
         private StrategyParameterInt _clustersLookBack;
-        private StrategyParameterInt _clustersMaxPercent;
-       
+
         // Indicator settings
         private StrategyParameterInt _lrLength;
         private StrategyParameterDecimal _lrDeviation;
@@ -62,7 +59,7 @@ namespace OsEngine.Robots
             // non trade periods
             _tradePeriodsSettings = new NonTradePeriods(name);
 
-            _tradePeriodsSettings.NonTradePeriodGeneral.NonTradePeriod1Start = new TimeOfDay() { Hour = 5, Minute = 0 };
+            _tradePeriodsSettings.NonTradePeriodGeneral.NonTradePeriod1Start = new TimeOfDay() { Hour = 0, Minute = 0 };
             _tradePeriodsSettings.NonTradePeriodGeneral.NonTradePeriod1End = new TimeOfDay() { Hour = 10, Minute = 05 };
             _tradePeriodsSettings.NonTradePeriodGeneral.NonTradePeriod1OnOff = true;
 
@@ -88,11 +85,10 @@ namespace OsEngine.Robots
             _screenerTab.CandleFinishedEvent += _screenerTab_CandleFinishedEvent;
 
             // Basic settings
-            _regime = CreateParameter("Regime", "Off", new[] { "Off", "On"});
+            _regime = CreateParameter("Regime", "Off", new[] { "Off", "On" });
             _icebergCount = CreateParameter("Iceberg orders count", 1, 1, 3, 1);
             _clusterToTrade = CreateParameter("Volatility cluster to trade", 1, 1, 3, 1);
             _clustersLookBack = CreateParameter("Volatility cluster lookBack", 30, 10, 300, 1);
-            _clustersMaxPercent = CreateParameter("Volatility cluster maxPercent", 10, 0, 20, 1);
             _maxPositionsCount = CreateParameter("Max positions ", 10, 1, 50, 4);
             _tradePeriodsShowDialogButton = CreateParameterButton("Non trade periods");
             _tradePeriodsShowDialogButton.UserClickOnButtonEvent += _tradePeriodsShowDialogButton_UserClickOnButtonEvent;
@@ -117,6 +113,9 @@ namespace OsEngine.Robots
             DeleteEvent += AlgoStart1ScreenerLinearRegression_DeleteEvent;
 
             volume = new SDKVolume(this);
+
+            // Subscribe to receive events/commands from Telegram
+            ServerTelegram.GetServer().TelegramCommandEvent += TelegramCommandHandler;
         }
 
         private void AlgoStart1ScreenerLinearRegression_DeleteEvent()
@@ -153,75 +152,67 @@ namespace OsEngine.Robots
             _screenerTab.UpdateIndicatorsParameters();
         }
 
-        // Logic
-        private void recalculateClusters(DateTime currTime)
+        private string _lastRegime = BotTradeRegime.Off.ToString();
+        private void TelegramCommandHandler(string botName, Command cmd)
         {
+            if (botName != null && !_screenerTab.TabName.Equals(botName))
+                return;
 
-            if (_lastTimeSetClusters == DateTime.MinValue
-             || _lastTimeSetClusters != currTime)
+            if (cmd == Command.StopAllBots || cmd == Command.StopBot)
             {
-                _lastTimeSetClusters = currTime;
-                if (_clustersMaxPercent == 0)
-                    _volatilityStageClusters.Calculate(_screenerTab.Tabs, _clustersLookBack.ValueInt);
-               
-                // перестраиваем кластеры по волатильности от максимальных процентов
-                if (_clustersMaxPercent > 0)
+                _lastRegime = _regime;
+                _regime.ValueString = BotTradeRegime.Off.ToString();
+
+                SendNewLogMessage($"Changed Bot {_screenerTab.TabName} Regime to {_regime.ValueString} " +
+                                  $"by telegram command {cmd}", LogMessageType.User);
+            }
+            else if ((cmd == Command.StartAllBots || cmd == Command.StartBot) &&
+                _regime.ValueString == BotTradeRegime.Off.ToString())
+            {
+                if (_lastRegime != BotTradeRegime.Off.ToString())
+                    _regime.ValueString = _lastRegime;
+                else
+                    _regime.ValueString = BotTradeRegime.On.ToString();
+
+                //changing bot mode to its previous state or On
+                SendNewLogMessage($"Changed bot {_screenerTab.TabName} mode to state {_regime.ValueString} " +
+                                  $"by telegram command {cmd}", LogMessageType.User);
+            }
+            else if (cmd == Command.CancelAllActiveOrders)
+            {
+                //Some logic for cancel all active orders
+            }
+            else if (cmd == Command.GetStatus)
+            {
+                List<Journal.Journal> journals = _screenerTab.GetJournals();
+
+                int count = 0;
+                decimal profit = 0;
+                decimal inputs = 0;
+
+                for (int j = 0; j < journals.Count; j++)
                 {
-                    _volatilityStageClusters.ClusterOne.Clear();
-                    _volatilityStageClusters.ClusterTwo.Clear();
-                    _volatilityStageClusters.ClusterThree.Clear();
+                    Journal.Journal curJournal = journals[j];
 
-                    List<SourceVolatility> sourcesWithCandles = new List<SourceVolatility>();
-
-                    for (int i = 0; i < _screenerTab.Tabs.Count; i++)
+                    for (int i2 = 0; i2 < curJournal.OpenPositions.Count; i2++)
                     {
-                        List<Candle> candles = _screenerTab.Tabs[i].CandlesFinishedOnly;
-
-                        if (candles == null
-                            || candles.Count == 0)
-                        {
-                            continue;
-                        }
-
-                        SourceVolatility newVola = new SourceVolatility();
-                        newVola.Tab = _screenerTab.Tabs[i];
-                        newVola.Candles = _screenerTab.Tabs[i].CandlesAll;
-                        newVola.Calculate(_clustersLookBack.ValueInt);
-
-                        sourcesWithCandles.Add(newVola);
+                        Position position = curJournal.OpenPositions[i2];
+                        count++;
+                        profit += position.ProfitPortfolioAbs;
+                        inputs += position.OpenVolume * position.EntryPrice * position.Lots;
                     }
-
-                    if (sourcesWithCandles.Count <= 1)
-                    {
-                        return;
-                    }
-
-                    sourcesWithCandles = sourcesWithCandles.OrderBy(x => x.Volatility).ToList();
-
-                    decimal clusterOneVolatility = _volatilityStageClusters.ClusterOnePercent * _clustersMaxPercent / 100;
-                    decimal clusterTwoVolatility = (_volatilityStageClusters.ClusterOnePercent + _volatilityStageClusters.ClusterTwoPercent) *
-                        _clustersMaxPercent / 100;
-
-                    for (int i = 0; i < sourcesWithCandles.Count; i++)
-                    {
-                        if (sourcesWithCandles[i].Volatility <= clusterOneVolatility)
-                        {
-                            _volatilityStageClusters.ClusterOne.Add(sourcesWithCandles[i].Tab);
-                        }
-                        else if (sourcesWithCandles[i].Volatility <= clusterTwoVolatility)
-                        {
-                            _volatilityStageClusters.ClusterTwo.Add(sourcesWithCandles[i].Tab);
-                        }
-                        else
-                        {
-                            _volatilityStageClusters.ClusterThree.Add(sourcesWithCandles[i].Tab);
-                        }
-                    }
-
                 }
+
+                SendNewLogMessage($"\nBot {_screenerTab.TabName} is {_regime.ValueString}.\n" +
+                                  $"Server Status - {(_screenerTab.Tabs.Count > 0 ? _screenerTab.Tabs[0].ServerStatus : "Empty")}.\n" +
+                                  $"Positions count {count}.\n" +
+                                  $"Total invested {inputs.ToString("F2")}.\n" +
+                                  $"Profit for all {profit.ToString("F2")}.\n"
+                                  , LogMessageType.User);
             }
         }
 
+        // Logic
         private void _screenerTab_CandleFinishedEvent(List<Candle> candles, BotTabSimple tab)
         {
             if (_regime.ValueString == "Off")
@@ -244,7 +235,12 @@ namespace OsEngine.Robots
             if (openPositions.Count == 0
                 && _clusterToTrade.ValueInt != 0)
             {
-                recalculateClusters(candles[^1].TimeStart);
+                if (_lastTimeSetClusters == DateTime.MinValue
+                 || _lastTimeSetClusters != candles[^1].TimeStart)
+                {
+                    _volatilityStageClusters.Calculate(_screenerTab.Tabs, _clustersLookBack.ValueInt);
+                    _lastTimeSetClusters = candles[^1].TimeStart;
+                }
 
                 if (_clusterToTrade.ValueInt == 1)
                 {
@@ -296,21 +292,23 @@ namespace OsEngine.Robots
                     return;
                 }
 
-                if (_smaFilterIsOn.ValueBool == true)
-                {// Sma filter
-                    Aindicator sma = (Aindicator)tab.Indicators[1];
-
-                    decimal lastSma = sma.DataSeries[0].Values[^1];
-
-                    if (candleClose < lastSma)
-                    {
-                        return;
-                    }
-                }
-
                 if (candleClose > lrUp)
                 {
-                    tab.BuyAtIcebergMarket(volume.GetVolume(tab), _icebergCount.ValueInt, 1000);
+                    if (_smaFilterIsOn.ValueBool == true)
+                    {// Sma filter
+                        Aindicator sma = (Aindicator)tab.Indicators[1];
+
+                        decimal lastSma = sma.DataSeries[0].Last;
+
+                        if (candleClose < lastSma)
+                        {
+                            return;
+                        }
+                    }
+
+                    decimal vol = volume.GetVolume(tab);
+                    if (vol > 0)
+                        tab.BuyAtIcebergMarket(vol, _icebergCount.ValueInt, 1000);
                 }
             }
             else // Logic close position
@@ -324,8 +322,7 @@ namespace OsEngine.Robots
 
                 Aindicator lrIndicator = (Aindicator)tab.Indicators[0];
 
-                decimal lrDown = lrIndicator.DataSeries[2].Values[^2];
-                decimal lrUp = lrIndicator.DataSeries[0].Values[^1];
+                decimal lrDown = lrIndicator.DataSeries[2].Last;
 
                 if (lrDown == 0)
                 {
@@ -333,9 +330,8 @@ namespace OsEngine.Robots
                 }
 
                 decimal lastClose = candles[^1].Close;
-                decimal lastClose2 = candles[^2].Close;
 
-                if (lastClose <= lrDown && lastClose2 <= lrDown)
+                if (lastClose <= lrDown)
                 {
                     tab.CloseAtIcebergMarket(pos, pos.OpenVolume, _icebergCount.ValueInt, 1000);
                 }
