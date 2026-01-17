@@ -84,7 +84,8 @@ namespace OsEngine.Robots
                 SendNewLogMessage($"Changed Bot {_tab.TabName} Regime to {Regime.ValueString} " +
                                   $"by telegram command {cmd}", LogMessageType.User);
             }
-            else if (cmd == Command.StartAllBots || cmd == Command.StartBot)
+            else if ((cmd == Command.StartAllBots || cmd == Command.StartBot) &&
+                Regime.ValueString == BotTradeRegime.Off.ToString())
             {
                 if (_lastRegime != BotTradeRegime.Off.ToString())
                     Regime.ValueString = _lastRegime;
@@ -105,16 +106,31 @@ namespace OsEngine.Robots
                 int count = 0;
                 decimal profit = 0;
                 decimal inputs = 0;
+                decimal freeMoney = 0;
+                decimal fullMoney = 0;
 
+                Journal.Journal curJournal = _tab.GetJournal();
+
+                for (int i2 = 0; i2 < curJournal.OpenPositions.Count; i2++)
                 {
-                    Journal.Journal curJournal = _tab.GetJournal();
+                    Position position = curJournal.OpenPositions[i2];
+                    count++;
+                    profit += position.ProfitPortfolioAbs;
+                    inputs += position.OpenVolume * position.EntryPrice * position.Lots;
+                }
 
-                    for (int i2 = 0; i2 < curJournal.OpenPositions.Count; i2++)
+                Portfolio myPortfolio = _tab.Portfolio;
+                if (myPortfolio != null)
+                {
+                    fullMoney = myPortfolio.ValueCurrent;
+                    List<PositionOnBoard> positionOnBoard = myPortfolio.GetPositionOnBoard();
+                    if (positionOnBoard != null)
                     {
-                        Position position = curJournal.OpenPositions[i2];
-                        count++;
-                        profit += position.ProfitPortfolioAbs;
-                        inputs += position.OpenVolume * position.EntryPrice * position.Lots;
+                        for (int i = 0; i < positionOnBoard.Count; i++)
+                        {
+                            if (positionOnBoard[i].SecurityNameCode == TradeAssetInPortfolio.ValueString)
+                                freeMoney = positionOnBoard[i].ValueCurrent;
+                        }
                     }
                 }
 
@@ -122,7 +138,9 @@ namespace OsEngine.Robots
                                   $"Server Status - {(_tab.ServerStatus)}.\n" +
                                   $"Positions count {count}.\n" +
                                   $"Total invested {inputs.ToString("F2")}.\n" +
-                                  $"Profit for all {profit.ToString("F2")}.\n"
+                                  $"Profit for all {profit.ToString("F2")}.\n" +
+                                  $"Portfolio full money {fullMoney.ToString("F2")}.\n" +
+                                  $"Portfolio free money {freeMoney.ToString("F2")}.\n"
                                   , LogMessageType.User);
             }
         }
