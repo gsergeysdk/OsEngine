@@ -13,6 +13,7 @@ using OsEngine.Market.Servers;
 using OsEngine.Market;
 using System;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement;
+using OsEngine.Robots.Helpers;
 
 namespace OsEngine.Robots.SDKRobots
 {
