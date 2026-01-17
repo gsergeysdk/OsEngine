@@ -10,6 +10,7 @@ using OsEngine.Indicators;
 using OsEngine.Market.Servers.Tester;
 using OsEngine.Charts.CandleChart.Indicators;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement;
+using OsEngine.Robots.Helpers;
 
 namespace OsEngine.Robots
 {
