@@ -11,51 +11,47 @@ using System;
 using System.Collections.Generic;
 
 /* Description
-Trading robot for osEngine
+Trading robot for osengine
 
-The trend robot-screener on LinearRegression channel and Volatility group.
+The trend robot-screener on ZigZag Channel and Volatility group.
 
 Buy:
-1. The candle closed above the upper line of the Linear Regression Channel
+1. The candle is buried above the ZigZag Channel's inclined channel level.
 2. Filter by volatility groups. All screener papers are divided into 3 groups. One of them is traded.
 
-Exit for long: When the Linear Regression Channel bottom line is broken
+Exit for long: When the ZigZag Channel bottom line is broken
 
 */
 
 namespace OsEngine.Robots.SDKRobots
 {
-    [Bot("SDKLinearRegression")]
-    public class SDKLinearRegression : BotPanel
+    [Bot("SDKRailway")]
+    public class SDKRailway : BotPanel
     {
-        private BotTabScreener _screenerTab;
+        private BotTabScreener _tabScreener;
 
         // Basic settings
         private StrategyParameterString _regime;
         private StrategyParameterInt _icebergCount;
-        private StrategyParameterInt _maxPositionsCount;
+        private StrategyParameterInt _maxPositions;
         private StrategyParameterInt _clusterToTrade;
         private StrategyParameterInt _clustersLookBack;
 
         // Indicator settings
-        private StrategyParameterInt _lrLength;
-        private StrategyParameterDecimal _lrDeviation;
-        private StrategyParameterBool _smaFilterIsOn;
-        private StrategyParameterInt _smaFilterLen;
-
-        // Volatility clusters
-        private VolatilityStageClusters _volatilityStageClusters = new VolatilityStageClusters();
-        private DateTime _lastTimeSetClusters;
+        private StrategyParameterInt _zigZagChannelLen;
 
         // Trade periods
         private NonTradePeriods _tradePeriodsSettings;
         private StrategyParameterButton _tradePeriodsShowDialogButton;
 
+        // Volatility clusters
+        private VolatilityStageClusters _volatilityStageClusters = new VolatilityStageClusters();
+        private DateTime _lastTimeSetClusters;
+
         public SDKVolume volume;
 
-        public SDKLinearRegression(string name, StartProgram startProgram) : base(name, startProgram)
+        public SDKRailway(string name, StartProgram startProgram) : base(name, startProgram)
         {
-
             // non trade periods
             _tradePeriodsSettings = new NonTradePeriods(name);
 
@@ -77,40 +73,28 @@ namespace OsEngine.Robots.SDKRobots
             _tradePeriodsSettings.Load();
 
             // Source creation
-
             TabCreate(BotTabType.Screener);
-            _screenerTab = TabsScreener[0];
-
-            // Subscribe to the candle finished event
-            _screenerTab.CandleFinishedEvent += _screenerTab_CandleFinishedEvent;
+            _tabScreener = TabsScreener[0];
 
             // Basic settings
             _regime = CreateParameter("Regime", "Off", new[] { "Off", "On" });
             _icebergCount = CreateParameter("Iceberg orders count", 1, 1, 3, 1);
+            _maxPositions = CreateParameter("Max positions", 10, 0, 20, 1);
             _clusterToTrade = CreateParameter("Volatility cluster to trade", 1, 1, 3, 1);
-            _clustersLookBack = CreateParameter("Volatility cluster lookBack", 30, 10, 300, 1);
-            _maxPositionsCount = CreateParameter("Max positions ", 10, 1, 50, 4);
+            _clustersLookBack = CreateParameter("Volatility cluster lookBack", 150, 10, 300, 1);
+            _zigZagChannelLen = CreateParameter("ZigZag channel length", 56, 0, 20, 1);
             _tradePeriodsShowDialogButton = CreateParameterButton("Non trade periods");
             _tradePeriodsShowDialogButton.UserClickOnButtonEvent += _tradePeriodsShowDialogButton_UserClickOnButtonEvent;
 
-            // Indicator settings
-            _smaFilterIsOn = CreateParameter("Sma filter is on", true);
-            _smaFilterLen = CreateParameter("Sma filter Len", 170, 100, 300, 10);
-            _lrLength = CreateParameter("Linear regression Length", 180, 20, 300, 10);
-            _lrDeviation = CreateParameter("Linear regression deviation", 2.4m, 1, 4, 0.1m);
+            // Subscribe to the candle finished event
+            _tabScreener.CandleFinishedEvent += _screenerTab_CandleFinishedEvent;
 
+            // Create indicator ZizZagChannel
+            _tabScreener.CreateCandleIndicator(1, "ZigZagChannel_indicator", new List<string>() { _zigZagChannelLen.ValueInt.ToString() }, "Prime");
 
-            // Create indicator LinearRegressionChannelFast_Indicator
-            _screenerTab.CreateCandleIndicator(1, "LinearRegressionChannelFast_Indicator", new List<string>() { _lrLength.ValueInt.ToString(), "Close", _lrDeviation.ValueDecimal.ToString(), _lrDeviation.ValueDecimal.ToString() }, "Prime");
+            Description = OsLocalization.Description.DescriptionLabel323;
 
-            // Create indicator Sma
-            _screenerTab.CreateCandleIndicator(2, "Sma", new List<string>() { _smaFilterLen.ValueInt.ToString(), "Close" }, "Prime");
-
-            // Subscribe to the indicator update event
-            ParametrsChangeByUser += SmaScreener_ParametrsChangeByUser;
-
-            Description = OsLocalization.Description.DescriptionLabel324;
-            DeleteEvent += AlgoStart1ScreenerLinearRegression_DeleteEvent;
+            this.DeleteEvent += AlgoStart4ScreenerRailway_DeleteEvent;
 
             volume = new SDKVolume(this);
 
@@ -118,44 +102,20 @@ namespace OsEngine.Robots.SDKRobots
             ServerTelegram.GetServer().TelegramCommandEvent += TelegramCommandHandler;
         }
 
-        private void AlgoStart1ScreenerLinearRegression_DeleteEvent()
+        private void AlgoStart4ScreenerRailway_DeleteEvent()
         {
-            try
-            {
-                _tradePeriodsSettings.Delete();
-            }
-            catch (Exception)
-            {
-                // ignore
-            }
-        }
+            _tradePeriodsSettings.Delete();
+        } 
 
         private void _tradePeriodsShowDialogButton_UserClickOnButtonEvent()
         {
             _tradePeriodsSettings.ShowDialog();
         }
 
-        private void SmaScreener_ParametrsChangeByUser()
-        {
-            _screenerTab._indicators[0].Parameters
-              = new List<string>()
-             {
-                 _lrLength.ValueInt.ToString(),
-                 "Close",
-                 _lrDeviation.ValueDecimal.ToString(),
-                 _lrDeviation.ValueDecimal.ToString()
-             };
-
-            _screenerTab._indicators[1].Parameters
-                = new List<string>() { _smaFilterLen.ValueInt.ToString(), "Close" };
-
-            _screenerTab.UpdateIndicatorsParameters();
-        }
-
         private string _lastRegime = BotTradeRegime.Off.ToString();
         private void TelegramCommandHandler(string botName, Command cmd)
         {
-            if (botName != null && !_screenerTab.TabName.Equals(botName))
+            if (botName != null && !_tabScreener.TabName.Equals(botName))
                 return;
 
             if (cmd == Command.StopAllBots || cmd == Command.StopBot)
@@ -163,7 +123,7 @@ namespace OsEngine.Robots.SDKRobots
                 _lastRegime = _regime;
                 _regime.ValueString = BotTradeRegime.Off.ToString();
 
-                SendNewLogMessage($"Changed Bot {_screenerTab.TabName} Regime to {_regime.ValueString} " +
+                SendNewLogMessage($"Changed Bot {_tabScreener.TabName} Regime to {_regime.ValueString} " +
                                   $"by telegram command {cmd}", LogMessageType.User);
             }
             else if ((cmd == Command.StartAllBots || cmd == Command.StartBot) &&
@@ -175,7 +135,7 @@ namespace OsEngine.Robots.SDKRobots
                     _regime.ValueString = BotTradeRegime.On.ToString();
 
                 //changing bot mode to its previous state or On
-                SendNewLogMessage($"Changed bot {_screenerTab.TabName} mode to state {_regime.ValueString} " +
+                SendNewLogMessage($"Changed bot {_tabScreener.TabName} mode to state {_regime.ValueString} " +
                                   $"by telegram command {cmd}", LogMessageType.User);
             }
             else if (cmd == Command.CancelAllActiveOrders)
@@ -184,7 +144,7 @@ namespace OsEngine.Robots.SDKRobots
             }
             else if (cmd == Command.GetStatus)
             {
-                List<Journal.Journal> journals = _screenerTab.GetJournals();
+                List<Journal.Journal> journals = _tabScreener.GetJournals();
 
                 int count = 0;
                 decimal profit = 0;
@@ -203,8 +163,8 @@ namespace OsEngine.Robots.SDKRobots
                     }
                 }
 
-                SendNewLogMessage($"\nBot {_screenerTab.TabName} is {_regime.ValueString}.\n" +
-                                  $"Server Status - {(_screenerTab.Tabs.Count > 0 ? _screenerTab.Tabs[0].ServerStatus : "Empty")}.\n" +
+                SendNewLogMessage($"\nBot {_tabScreener.TabName} is {_regime.ValueString}.\n" +
+                                  $"Server Status - {(_tabScreener.Tabs.Count > 0 ? _tabScreener.Tabs[0].ServerStatus : "Empty")}.\n" +
                                   $"Positions count {count}.\n" +
                                   $"Total invested {inputs.ToString("F2")}.\n" +
                                   $"Profit for all {profit.ToString("F2")}.\n"
@@ -212,7 +172,8 @@ namespace OsEngine.Robots.SDKRobots
             }
         }
 
-        // Logic
+        // logic
+
         private void _screenerTab_CandleFinishedEvent(List<Candle> candles, BotTabSimple tab)
         {
             if (_regime.ValueString == "Off")
@@ -238,7 +199,7 @@ namespace OsEngine.Robots.SDKRobots
                 if (_lastTimeSetClusters == DateTime.MinValue
                  || _lastTimeSetClusters != candles[^1].TimeStart)
                 {
-                    _volatilityStageClusters.Calculate(_screenerTab.Tabs, _clustersLookBack.ValueInt);
+                    _volatilityStageClusters.Calculate(_tabScreener.Tabs, _clustersLookBack.ValueInt);
                     _lastTimeSetClusters = candles[^1].TimeStart;
                 }
 
@@ -269,73 +230,136 @@ namespace OsEngine.Robots.SDKRobots
                 }
             }
 
-            List<Position> positions = tab.PositionsOpenAll;
-
-            if (positions.Count == 0)
-            { // Opening logic
-
-                if (_screenerTab.PositionsOpenAll.Count >= _maxPositionsCount.ValueInt)
+            if (openPositions == null || openPositions.Count == 0)
+            {
+                if (_regime.ValueString == "OnlyClosePosition")
                 {
                     return;
                 }
+                LogicOpenPosition(candles, tab);
+            }
+            else
+            {
+                LogicClosePosition(candles, tab, openPositions[0]);
+            }
+        }
 
-                decimal candleClose = candles[candles.Count - 1].Close;
+        // Opening logic
+        private void LogicOpenPosition(List<Candle> candles, BotTabSimple tab)
+        {
+            if (_tabScreener.PositionsOpenAll.Count >= _maxPositions.ValueInt)
+            {
+                return;
+            }
 
-                Aindicator lrIndicator = (Aindicator)tab.Indicators[0];
+            Aindicator zigZag = (Aindicator)tab.Indicators[0];
 
-                decimal lrUp = lrIndicator.DataSeries[0].Values[^1];
-                decimal lrDown = lrIndicator.DataSeries[2].Values[^1];
+            if (zigZag.ParametersDigit[0].Value != _zigZagChannelLen.ValueInt)
+            {
+                zigZag.ParametersDigit[0].Value = _zigZagChannelLen.ValueInt;
+                zigZag.Save();
+                zigZag.Reload();
+            }
 
-                if (lrUp == 0
-                    || lrDown == 0)
+            if (zigZag.DataSeries[4].Values.Count == 0 ||
+                zigZag.DataSeries[4].Last == 0 ||
+                zigZag.DataSeries[5].Values.Count == 0 ||
+                zigZag.DataSeries[5].Last == 0)
+            {
+                return;
+            }
+
+            decimal zigZagUpLine = zigZag.DataSeries[4].Last;
+            decimal zigZagDownLine = zigZag.DataSeries[5].Last;
+            decimal lastCandleClose = candles[candles.Count - 1].Close;
+
+            if (lastCandleClose > zigZagUpLine
+                && lastCandleClose > zigZagDownLine)
+            {
+                decimal smaValue = Sma(candles, 150, candles.Count - 1);
+                decimal smaPrev = Sma(candles, 150, candles.Count - 2);
+
+                if (smaValue > smaPrev)
                 {
-                    return;
-                }
-
-                if (candleClose > lrUp)
-                {
-                    if (_smaFilterIsOn.ValueBool == true)
-                    {// Sma filter
-                        Aindicator sma = (Aindicator)tab.Indicators[1];
-
-                        decimal lastSma = sma.DataSeries[0].Last;
-
-                        if (candleClose < lastSma)
-                        {
-                            return;
-                        }
-                    }
-
                     decimal vol = volume.GetVolume(tab);
                     if (vol > 0)
                         tab.BuyAtIcebergMarket(vol, _icebergCount.ValueInt, 1000);
                 }
             }
-            else // Logic close position
+        }
+
+        // Logic close position
+        private void LogicClosePosition(List<Candle> candles, BotTabSimple tab, Position position)
+        {
+            if (position.State != PositionStateType.Open
+                          //||
+                          //(position.CloseOrders != null
+                          //&& position.CloseOrders.Count > 0)
+                          )
             {
-                Position pos = positions[0];
+                return;
+            }
 
-                if (pos.State != PositionStateType.Open)
-                {
-                    return;
-                }
+            Aindicator zigZag = (Aindicator)tab.Indicators[0];
 
-                Aindicator lrIndicator = (Aindicator)tab.Indicators[0];
+            if (zigZag.ParametersDigit[0].Value != _zigZagChannelLen.ValueInt)
+            {
+                zigZag.ParametersDigit[0].Value = _zigZagChannelLen.ValueInt;
+                zigZag.Save();
+                zigZag.Reload();
+            }
 
-                decimal lrDown = lrIndicator.DataSeries[2].Last;
+            if (zigZag.DataSeries[5].Values.Count == 0 ||
+                zigZag.DataSeries[5].Last == 0)
+            {
+                return;
+            }
 
-                if (lrDown == 0)
-                {
-                    return;
-                }
+            decimal lastClose = candles[candles.Count - 1].Close;
+            decimal zigZagDownLine = zigZag.DataSeries[5].Last;
 
-                decimal lastClose = candles[^1].Close;
-
-                if (lastClose <= lrDown)
-                {
-                    tab.CloseAtIcebergMarket(pos, pos.OpenVolume, _icebergCount.ValueInt, 1000);
-                }
+            if (lastClose < zigZagDownLine)
+            {
+                tab.CloseAtIcebergMarket(position, position.OpenVolume, _icebergCount.ValueInt, 1000);
+                return;
             }
         }
+
+        // Method for calculating sma
+        private decimal Sma(List<Candle> candles, int len, int index)
+        {
+            if (candles.Count == 0
+                || index >= candles.Count
+                || index <= 0)
+            {
+                return 0;
+            }
+
+            decimal summ = 0;
+
+            int countPoints = 0;
+
+            for (int i = index; i >= 0 && i > index - len; i--)
+            {
+                countPoints++;
+                summ += candles[i].Close;
+            }
+
+            if (countPoints == 0)
+            {
+                return 0;
+            }
+
+            return summ / countPoints;
+        }
+    }
+
+    public class SecurityRatingData
+    {
+        public string SecurityName;
+
+        public decimal Rsi;
+
+        public decimal Volume;
     }
 }
