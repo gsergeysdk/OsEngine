@@ -218,7 +218,8 @@ namespace OsEngine.Robots.SoldiersScreener
                 SendNewLogMessage($"Changed Bot {_tab.TabName} Regime to {Regime.ValueString} " +
                                   $"by telegram command {cmd}", LogMessageType.User);
             }
-            else if (cmd == Command.StartAllBots || cmd == Command.StartBot)
+            else if ((cmd == Command.StartAllBots || cmd == Command.StartBot) &&
+                Regime.ValueString == BotTradeRegime.Off.ToString())
             {
                 if (_lastRegime != BotTradeRegime.Off.ToString())
                     Regime.ValueString = _lastRegime;
