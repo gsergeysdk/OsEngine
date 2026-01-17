@@ -4,6 +4,7 @@ using OsEngine.Logging;
 using OsEngine.OsTrader.Panels;
 using OsEngine.OsTrader.Panels.Attributes;
 using OsEngine.OsTrader.Panels.Tab;
+using OsEngine.Robots.Helpers;
 using System;
 using System.Collections.Generic;
 using System.Drawing;

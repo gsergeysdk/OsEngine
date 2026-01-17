@@ -12,6 +12,7 @@ using OsEngine.OsTrader.Panels.Attributes;
 using OsEngine.Market.Servers;
 using OsEngine.Market;
 using System;
+using OsEngine.Robots.Helpers;
 
 namespace OsEngine.Robots.SDKRobots
 {

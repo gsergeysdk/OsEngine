@@ -13,6 +13,7 @@ using OsEngine.OsTrader.Panels.Tab;
 using OsEngine.Indicators;
 using OsEngine.Market.Servers.Tester;
 using OsEngine.Market.Servers.Optimizer;
+using OsEngine.Robots.Helpers;
 
 namespace OsEngine.Robots.SDKRobots
 {

@@ -7,7 +7,7 @@ using OsEngine.OsTrader.Panels.Tab;
 using System;
 using System.Collections.Generic;
 
-namespace OsEngine.Robots
+namespace OsEngine.Robots.Helpers
 {
     public class SDKVolume
     {
