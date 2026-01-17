@@ -145,7 +145,8 @@ namespace OsEngine.Robots.MyBots
                 SendNewLogMessage($"Changed Bot {_tab1.TabName} Regime to Off " +
                                   $"by telegram command {cmd}", LogMessageType.User);
             }
-            else if (cmd == Command.StartAllBots || cmd == Command.StartBot)
+            else if ((cmd == Command.StartAllBots || cmd == Command.StartBot) &&
+                Regime.ValueString == BotTradeRegime.Off.ToString())
             {
                 Regime.ValueString = BotTradeRegime.On.ToString();
 
