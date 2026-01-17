@@ -13,49 +13,48 @@ using System.Collections.Generic;
 /* Description
 Trading robot for osEngine
 
-The trend robot-screener on LinearRegression channel and Volatility group.
+The trend robot-screener on Adaptive Price Channel and Volatility group.
 
 Buy:
-1. The candle closed above the upper line of the Linear Regression Channel
+1. The candle closed above the upper line of the Price Channel
 2. Filter by volatility groups. All screener papers are divided into 3 groups. One of them is traded.
 
-Exit for long: When the Linear Regression Channel bottom line is broken
+Exit for long: When the Price Channel bottom line is broken
 
 */
 
 namespace OsEngine.Robots.SDKRobots
 {
-    [Bot("SDKLinearRegression")]
-    public class SDKLinearRegression : BotPanel
+    [Bot("SDKPriceChannel")]
+    public class SDKPriceChannel : BotPanel
     {
         private BotTabScreener _screenerTab;
 
         // Basic settings
         private StrategyParameterString _regime;
         private StrategyParameterInt _icebergCount;
-        private StrategyParameterInt _maxPositionsCount;
+        private StrategyParameterInt _maxPositions;
         private StrategyParameterInt _clusterToTrade;
         private StrategyParameterInt _clustersLookBack;
 
         // Indicator settings
-        private StrategyParameterInt _lrLength;
-        private StrategyParameterDecimal _lrDeviation;
+        private StrategyParameterInt _pcAdxLength;
+        private StrategyParameterInt _pcRatio;
         private StrategyParameterBool _smaFilterIsOn;
         private StrategyParameterInt _smaFilterLen;
-
-        // Volatility clusters
-        private VolatilityStageClusters _volatilityStageClusters = new VolatilityStageClusters();
-        private DateTime _lastTimeSetClusters;
 
         // Trade periods
         private NonTradePeriods _tradePeriodsSettings;
         private StrategyParameterButton _tradePeriodsShowDialogButton;
 
+        // Volatility clusters
+        private VolatilityStageClusters _volatilityStageClusters = new VolatilityStageClusters();
+        private DateTime _lastTimeSetClusters;
+
         public SDKVolume volume;
 
-        public SDKLinearRegression(string name, StartProgram startProgram) : base(name, startProgram)
+        public SDKPriceChannel(string name, StartProgram startProgram) : base(name, startProgram)
         {
-
             // non trade periods
             _tradePeriodsSettings = new NonTradePeriods(name);
 
@@ -77,7 +76,6 @@ namespace OsEngine.Robots.SDKRobots
             _tradePeriodsSettings.Load();
 
             // Source creation
-
             TabCreate(BotTabType.Screener);
             _screenerTab = TabsScreener[0];
 
@@ -87,30 +85,29 @@ namespace OsEngine.Robots.SDKRobots
             // Basic settings
             _regime = CreateParameter("Regime", "Off", new[] { "Off", "On" });
             _icebergCount = CreateParameter("Iceberg orders count", 1, 1, 3, 1);
-            _clusterToTrade = CreateParameter("Volatility cluster to trade", 1, 1, 3, 1);
-            _clustersLookBack = CreateParameter("Volatility cluster lookBack", 30, 10, 300, 1);
-            _maxPositionsCount = CreateParameter("Max positions ", 10, 1, 50, 4);
+            _clusterToTrade = CreateParameter("Volatility cluster to trade", 2, 1, 3, 1);
+            _clustersLookBack = CreateParameter("Volatility cluster lookBack", 100, 10, 300, 1);
+            _maxPositions = CreateParameter("Max poses", 10, 1, 20, 1);
             _tradePeriodsShowDialogButton = CreateParameterButton("Non trade periods");
             _tradePeriodsShowDialogButton.UserClickOnButtonEvent += _tradePeriodsShowDialogButton_UserClickOnButtonEvent;
 
             // Indicator settings
+            _pcAdxLength = CreateParameter("Pc adx length", 50, 5, 300, 1);
+            _pcRatio = CreateParameter("Pc ratio", 840, 5, 2000, 1);
             _smaFilterIsOn = CreateParameter("Sma filter is on", true);
-            _smaFilterLen = CreateParameter("Sma filter Len", 170, 100, 300, 10);
-            _lrLength = CreateParameter("Linear regression Length", 180, 20, 300, 10);
-            _lrDeviation = CreateParameter("Linear regression deviation", 2.4m, 1, 4, 0.1m);
+            _smaFilterLen = CreateParameter("Sma filter Len", 70, 100, 300, 10);
 
-
-            // Create indicator LinearRegressionChannelFast_Indicator
-            _screenerTab.CreateCandleIndicator(1, "LinearRegressionChannelFast_Indicator", new List<string>() { _lrLength.ValueInt.ToString(), "Close", _lrDeviation.ValueDecimal.ToString(), _lrDeviation.ValueDecimal.ToString() }, "Prime");
-
-            // Create indicator Sma
-            _screenerTab.CreateCandleIndicator(2, "Sma", new List<string>() { _smaFilterLen.ValueInt.ToString(), "Close" }, "Prime");
+            // Create indicator PriceChannelAdaptive
+            _screenerTab.CreateCandleIndicator(2,
+                "PriceChannelAdaptive",
+                new List<string>() { _pcAdxLength.ValueInt.ToString(), _pcRatio.ValueInt.ToString() },
+                "Prime");
 
             // Subscribe to the indicator update event
             ParametrsChangeByUser += SmaScreener_ParametrsChangeByUser;
 
-            Description = OsLocalization.Description.DescriptionLabel324;
-            DeleteEvent += AlgoStart1ScreenerLinearRegression_DeleteEvent;
+            Description = OsLocalization.Description.DescriptionLabel326;
+            DeleteEvent += AlgoStart3ScreenerPriceChannel_DeleteEvent;
 
             volume = new SDKVolume(this);
 
@@ -118,38 +115,15 @@ namespace OsEngine.Robots.SDKRobots
             ServerTelegram.GetServer().TelegramCommandEvent += TelegramCommandHandler;
         }
 
-        private void AlgoStart1ScreenerLinearRegression_DeleteEvent()
-        {
-            try
-            {
-                _tradePeriodsSettings.Delete();
-            }
-            catch (Exception)
-            {
-                // ignore
-            }
-        }
-
-        private void _tradePeriodsShowDialogButton_UserClickOnButtonEvent()
-        {
-            _tradePeriodsSettings.ShowDialog();
-        }
-
         private void SmaScreener_ParametrsChangeByUser()
         {
-            _screenerTab._indicators[0].Parameters
-              = new List<string>()
-             {
-                 _lrLength.ValueInt.ToString(),
-                 "Close",
-                 _lrDeviation.ValueDecimal.ToString(),
-                 _lrDeviation.ValueDecimal.ToString()
-             };
-
-            _screenerTab._indicators[1].Parameters
-                = new List<string>() { _smaFilterLen.ValueInt.ToString(), "Close" };
-
+            _screenerTab._indicators[0].Parameters = new List<string>() { _pcAdxLength.ValueInt.ToString(), _pcRatio.ValueInt.ToString() };
             _screenerTab.UpdateIndicatorsParameters();
+        }
+
+        private void AlgoStart3ScreenerPriceChannel_DeleteEvent()
+        {
+            _tradePeriodsSettings.Delete();
         }
 
         private string _lastRegime = BotTradeRegime.Off.ToString();
@@ -212,9 +186,18 @@ namespace OsEngine.Robots.SDKRobots
             }
         }
 
+        private void _tradePeriodsShowDialogButton_UserClickOnButtonEvent()
+        {
+            _tradePeriodsSettings.ShowDialog();
+        }
+
         // Logic
         private void _screenerTab_CandleFinishedEvent(List<Candle> candles, BotTabSimple tab)
         {
+            // 1 If there is a position, then we close the trailing stop
+
+            // 2 There is no pose. Open long if the last N candles we were above the moving average
+
             if (_regime.ValueString == "Off")
             {
                 return;
@@ -232,7 +215,7 @@ namespace OsEngine.Robots.SDKRobots
 
             List<Position> openPositions = tab.PositionsOpenAll;
 
-            if (openPositions.Count == 0
+            if (openPositions.Count == 0 
                 && _clusterToTrade.ValueInt != 0)
             {
                 if (_lastTimeSetClusters == DateTime.MinValue
@@ -271,47 +254,45 @@ namespace OsEngine.Robots.SDKRobots
 
             List<Position> positions = tab.PositionsOpenAll;
 
-            if (positions.Count == 0)
-            { // Opening logic
+            if (positions.Count == 0) // Open position logic
+            {
+                int allPosesInAllTabs = this.PositionsCount;
 
-                if (_screenerTab.PositionsOpenAll.Count >= _maxPositionsCount.ValueInt)
+                if (allPosesInAllTabs >= _maxPositions.ValueInt)
+                {
+                    return;
+                }
+
+                Aindicator priceChannel = (Aindicator)tab.Indicators[0];
+
+                decimal pcUp = priceChannel.DataSeries[0].Values[priceChannel.DataSeries[0].Values.Count - 2];
+
+                if (pcUp == 0)
                 {
                     return;
                 }
 
                 decimal candleClose = candles[candles.Count - 1].Close;
 
-                Aindicator lrIndicator = (Aindicator)tab.Indicators[0];
-
-                decimal lrUp = lrIndicator.DataSeries[0].Values[^1];
-                decimal lrDown = lrIndicator.DataSeries[2].Values[^1];
-
-                if (lrUp == 0
-                    || lrDown == 0)
+                if (candleClose > pcUp)
                 {
-                    return;
-                }
 
-                if (candleClose > lrUp)
-                {
                     if (_smaFilterIsOn.ValueBool == true)
-                    {// Sma filter
-                        Aindicator sma = (Aindicator)tab.Indicators[1];
+                    {
+                        decimal smaValue = Sma(candles, _smaFilterLen.ValueInt, candles.Count - 1);
+                        decimal smaPrev = Sma(candles, _smaFilterLen.ValueInt, candles.Count - 2);
 
-                        decimal lastSma = sma.DataSeries[0].Last;
-
-                        if (candleClose < lastSma)
+                        if (smaValue < smaPrev)
                         {
                             return;
                         }
                     }
-
                     decimal vol = volume.GetVolume(tab);
                     if (vol > 0)
                         tab.BuyAtIcebergMarket(vol, _icebergCount.ValueInt, 1000);
                 }
             }
-            else // Logic close position
+            else // Close logic
             {
                 Position pos = positions[0];
 
@@ -320,22 +301,51 @@ namespace OsEngine.Robots.SDKRobots
                     return;
                 }
 
-                Aindicator lrIndicator = (Aindicator)tab.Indicators[0];
+                Aindicator priceChannel = (Aindicator)tab.Indicators[0];
 
-                decimal lrDown = lrIndicator.DataSeries[2].Last;
+                decimal pcDown = priceChannel.DataSeries[1].Values[^2];
 
-                if (lrDown == 0)
+                if (pcDown == 0)
                 {
                     return;
                 }
 
                 decimal lastClose = candles[^1].Close;
 
-                if (lastClose <= lrDown)
+                if(lastClose <= pcDown)
                 {
-                    tab.CloseAtIcebergMarket(pos, pos.OpenVolume, _icebergCount.ValueInt, 1000);
+                    tab.CloseAtIcebergMarket(pos,pos.OpenVolume,_icebergCount.ValueInt,1000);
                 }
             }
         }
+
+        // Method for calculating Sma
+        private decimal Sma(List<Candle> candles, int len, int index)
+        {
+            if (candles.Count == 0
+                || index >= candles.Count
+                || index <= 0)
+            {
+                return 0;
+            }
+
+            decimal summ = 0;
+
+            int countPoints = 0;
+
+            for (int i = index; i >= 0 && i > index - len; i--)
+            {
+                countPoints++;
+                summ += candles[i].Close;
+            }
+
+            if (countPoints == 0)
+            {
+                return 0;
+            }
+
+            return summ / countPoints;
+        }
+
     }
 }
