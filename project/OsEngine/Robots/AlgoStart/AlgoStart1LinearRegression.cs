@@ -179,7 +179,8 @@ namespace OsEngine.Robots.AlgoStart
                 SendNewLogMessage($"Changed Bot {_screenerTab.TabName} Regime to {_regime.ValueString} " +
                                   $"by telegram command {cmd}", LogMessageType.User);
             }
-            else if (cmd == Command.StartAllBots || cmd == Command.StartBot)
+            else if ((cmd == Command.StartAllBots || cmd == Command.StartBot) &&
+                _regime.ValueString == BotTradeRegime.Off.ToString())
             {
                 if (_lastRegime != BotTradeRegime.Off.ToString())
                     _regime.ValueString = _lastRegime;
