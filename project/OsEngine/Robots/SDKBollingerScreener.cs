@@ -47,6 +47,7 @@ namespace OsEngine.Robots.Screeners
         private StrategyParameterButton _tradePeriodsShowDialogButton;
 
         public SDKVolume volume;
+        public SDKPositionsSupport support;
 
         public SDKBollingerScreener(string name, StartProgram startProgram) : base(name, startProgram)
         {
@@ -86,6 +87,7 @@ namespace OsEngine.Robots.Screeners
             trandCounter = CreateParameter("Trand Counter", 10, 10, 50, 10);
 
             volume = new SDKVolume(this);
+            support = new SDKPositionsSupport(this);
 
             _tradePeriodsSettings = new NonTradePeriods(name);
             _tradePeriodsSettings.Load();
@@ -307,6 +309,9 @@ namespace OsEngine.Robots.Screeners
                 //if (lastBollingerLine <= prevBollingerLine)
                 //    return;
 
+                if (!support.CanOpenNewPosition(tab, candles, lastCandleClose, Side.Buy))
+                    return;
+
                 decimal vol = volume.GetVolume(tab);
                 if (vol > 0)
                     tab.BuyAtMarket(vol);
@@ -318,6 +323,13 @@ namespace OsEngine.Robots.Screeners
         {
             if (position.State != PositionStateType.Open)
             {
+                return;
+            }
+
+            if (support.IsNeedClosePosition(tab, position))
+            {
+                SendNewLogMessage($"Close By Support {tab.Security.Name}", LogMessageType.Trade);
+                tab.CloseAtMarket(position, position.OpenVolume, "support");
                 return;
             }
 
