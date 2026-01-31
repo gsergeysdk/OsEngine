@@ -1,4 +1,5 @@
-﻿using OsEngine.Entity;
+﻿using OsEngine.Charts.CandleChart.Indicators;
+using OsEngine.Entity;
 using OsEngine.Indicators;
 using OsEngine.Logging;
 using OsEngine.Market;
@@ -39,14 +40,12 @@ namespace OsEngine.Robots.SoldiersScreener
         public StrategyParameterBool SmaFilterIsOn;
         public StrategyParameterInt SmaFilterLen;
 
-        private StrategyParameterTimeOfDay TimeStart;
-        private StrategyParameterTimeOfDay TimeEnd;
-
         // Trade periods
         private NonTradePeriods _tradePeriodsSettings;
         private StrategyParameterButton _tradePeriodsShowDialogButton;
 
         public SDKVolume volume;
+        public SDKPositionsSupport support;
 
         // volatility adaptation
 
@@ -64,8 +63,6 @@ namespace OsEngine.Robots.SoldiersScreener
             Regime = CreateParameter("Regime", "Off", new[] { "Off", "On", "OnlyLong", "OnlyShort" });
             MaxPositions = CreateParameter("Max positions", 5, 0, 20, 1);
             Slippage = CreateParameter("Slippage %", 0, 0, 20, 1m);
-            TimeStart = CreateParameterTimeOfDay("Start Trade Time", 7, 35, 0, 0);
-            TimeEnd = CreateParameterTimeOfDay("End Trade Time", 22, 25, 0, 0);
             ProcHeightTake = CreateParameter("Profit % from height of pattern", 50m, 0, 20, 1m);
             ProcHeightStop = CreateParameter("Stop % from height of pattern", 20m, 0, 20, 1m);
             TrailingStopRepcent = CreateParameter("Trailing stop %", 20m, 0, 20, 1m);
@@ -78,6 +75,7 @@ namespace OsEngine.Robots.SoldiersScreener
             SmaFilterIsOn = CreateParameter("Sma filter is on", true);
             SmaFilterLen = CreateParameter("Sma filter Len", 100, 100, 300, 10);
             volume = new SDKVolume(this);
+            support = new SDKPositionsSupport(this);
 
             _tradePeriodsSettings = new NonTradePeriods(name);
             _tradePeriodsSettings.Load();
@@ -428,10 +426,6 @@ namespace OsEngine.Robots.SoldiersScreener
                 candles[^1].TimeStart.DayOfWeek > DayOfWeek.Friday)
                 return;
 
-            if (TimeStart.Value > tab.TimeServerCurrent ||
-                TimeEnd.Value < tab.TimeServerCurrent)
-                return;
-
             decimal _lastPrice = candles[candles.Count - 1].Close;
             List<Position> openPositions = tab.PositionsOpenAll;
 
@@ -475,9 +469,12 @@ namespace OsEngine.Robots.SoldiersScreener
                     if (stopLossPrice < _lastPrice - _lastPrice * (MaxStopLossPercent.ValueDecimal / 100) ||
                         stopLossPrice > _lastPrice)
                         return;
+                    decimal price = _lastPrice + _lastPrice * (Slippage.ValueDecimal / 100);
+                    if (!support.CanOpenNewPosition(tab, candles, price, Side.Buy))
+                        return;
                     decimal vol = volume.GetVolume(tab);
                     if (vol > 0)
-                        tab.BuyAtLimit(vol, _lastPrice + _lastPrice * (Slippage.ValueDecimal / 100));
+                        tab.BuyAtLimit(vol, price);
                 }
             }
 
@@ -498,9 +495,12 @@ namespace OsEngine.Robots.SoldiersScreener
                     decimal stopLossPrice = GetStopLossPrice(Side.Sell, candles, tab);
                     if (stopLossPrice > _lastPrice + _lastPrice * (MaxStopLossPercent.ValueDecimal / 100))
                         return;
+                    decimal price = _lastPrice - _lastPrice * (Slippage.ValueDecimal / 100);
+                    if (!support.CanOpenNewPosition(tab, candles, price, Side.Sell))
+                        return;
                     decimal vol = volume.GetVolume(tab);
                     if (vol > 0)
-                        tab.SellAtLimit(vol, _lastPrice - _lastPrice * (Slippage.ValueDecimal / 100));
+                        tab.SellAtLimit(vol, price);
                 }
             }
             return;
@@ -565,6 +565,13 @@ namespace OsEngine.Robots.SoldiersScreener
                         tab.CloseAtMarket(position, position.OpenVolume);
                         continue;
                     }
+                }
+
+                if (support.IsNeedClosePosition(tab, position))
+                {
+                    SendNewLogMessage($"Close By Support {tab.Security.Name}", LogMessageType.Trade);
+                    tab.CloseAtMarket(position, position.OpenVolume, "support");
+                    continue;
                 }
 
                 if (position.Direction == Side.Buy)
