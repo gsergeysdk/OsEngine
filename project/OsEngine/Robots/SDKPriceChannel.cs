@@ -53,6 +53,7 @@ namespace OsEngine.Robots.SDKRobots
         private DateTime _lastTimeSetClusters;
 
         public SDKVolume volume;
+        public SDKPositionsSupport support;
 
         public SDKPriceChannel(string name, StartProgram startProgram) : base(name, startProgram)
         {
@@ -111,6 +112,7 @@ namespace OsEngine.Robots.SDKRobots
             DeleteEvent += AlgoStart3ScreenerPriceChannel_DeleteEvent;
 
             volume = new SDKVolume(this);
+            support = new SDKPositionsSupport(this);
 
             // Subscribe to receive events/commands from Telegram
             ServerTelegram.GetServer().TelegramCommandEvent += TelegramCommandHandler;
@@ -288,6 +290,8 @@ namespace OsEngine.Robots.SDKRobots
                             return;
                         }
                     }
+                    if (!support.CanOpenNewPosition(tab, candles, candleClose, Side.Buy))
+                        return;
                     decimal vol = volume.GetVolume(tab);
                     if (vol > 0)
                         tab.BuyAtIcebergMarket(vol, _icebergCount.ValueInt, 1000);
@@ -299,6 +303,12 @@ namespace OsEngine.Robots.SDKRobots
 
                 if (pos.State != PositionStateType.Open)
                 {
+                    return;
+                }
+                if (support.IsNeedClosePosition(tab, pos))
+                {
+                    SendNewLogMessage($"Close By Support {tab.Security.Name}", LogMessageType.Trade);
+                    tab.CloseAtMarket(pos, pos.OpenVolume, "support");
                     return;
                 }
 
