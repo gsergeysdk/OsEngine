@@ -40,6 +40,7 @@ namespace OsEngine.Robots.SDKRobots
 
         // Indicator settings
         private StrategyParameterInt _zigZagChannelLen;
+        private StrategyParameterInt _smaFilterLen;
 
         // Trade periods
         private NonTradePeriods _tradePeriodsSettings;
@@ -50,6 +51,7 @@ namespace OsEngine.Robots.SDKRobots
         private DateTime _lastTimeSetClusters;
 
         public SDKVolume volume;
+        public SDKPositionsSupport support;
 
         public SDKRailway(string name, StartProgram startProgram) : base(name, startProgram)
         {
@@ -84,6 +86,7 @@ namespace OsEngine.Robots.SDKRobots
             _clusterToTrade = CreateParameter("Volatility cluster to trade", 1, 1, 3, 1);
             _clustersLookBack = CreateParameter("Volatility cluster lookBack", 150, 10, 300, 1);
             _zigZagChannelLen = CreateParameter("ZigZag channel length", 56, 0, 20, 1);
+            _smaFilterLen = CreateParameter("SMA filter length", 150, 0, 200, 10);
             _tradePeriodsShowDialogButton = CreateParameterButton("Non trade periods");
             _tradePeriodsShowDialogButton.UserClickOnButtonEvent += _tradePeriodsShowDialogButton_UserClickOnButtonEvent;
 
@@ -98,6 +101,7 @@ namespace OsEngine.Robots.SDKRobots
             this.DeleteEvent += AlgoStart4ScreenerRailway_DeleteEvent;
 
             volume = new SDKVolume(this);
+            support = new SDKPositionsSupport(this);
 
             // Subscribe to receive events/commands from Telegram
             ServerTelegram.GetServer().TelegramCommandEvent += TelegramCommandHandler;
@@ -277,11 +281,13 @@ namespace OsEngine.Robots.SDKRobots
             if (lastCandleClose > zigZagUpLine
                 && lastCandleClose > zigZagDownLine)
             {
-                decimal smaValue = Sma(candles, 150, candles.Count - 1);
-                decimal smaPrev = Sma(candles, 150, candles.Count - 2);
+                decimal smaValue = Sma(candles, _smaFilterLen, candles.Count - 1);
+                decimal smaPrev = Sma(candles, _smaFilterLen, candles.Count - 2);
 
                 if (smaValue > smaPrev)
                 {
+                    if (!support.CanOpenNewPosition(tab, candles, lastCandleClose, Side.Buy))
+                        return;
                     decimal vol = volume.GetVolume(tab);
                     if (vol > 0)
                         tab.BuyAtIcebergMarket(vol, _icebergCount.ValueInt, 1000);
@@ -298,6 +304,12 @@ namespace OsEngine.Robots.SDKRobots
                           //&& position.CloseOrders.Count > 0)
                           )
             {
+                return;
+            }
+            if (support.IsNeedClosePosition(tab, position))
+            {
+                SendNewLogMessage($"Close By Support {tab.Security.Name}", LogMessageType.Trade);
+                tab.CloseAtMarket(position, position.OpenVolume, "support");
                 return;
             }
 
