@@ -104,7 +104,9 @@ namespace OsEngine.Robots.Helpers
 
                 decimal moneyOnPosition = Math.Min(fullPortfolioPrimeAsset * (Volume.ValueDecimal / 100), portfolioPrimeAsset);
 
-                decimal qty = moneyOnPosition / tab.PriceBestAsk / tab.Security.Lot;
+                decimal qty = 0m;
+                if (tab.PriceBestAsk != 0 && tab.Security.Lot != 0)
+                    qty = moneyOnPosition / tab.PriceBestAsk / tab.Security.Lot;
 
                 if (tab.StartProgram == StartProgram.IsOsTrader)
                 {
