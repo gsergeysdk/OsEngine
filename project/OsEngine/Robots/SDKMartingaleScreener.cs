@@ -303,7 +303,9 @@ namespace OsEngine.Robots
             {
                 if (hasSignalToOpen(candles, tab) == Side.Buy)
                 {
-                    tab.BuyAtMarket(volume.GetVolume(tab));
+                    decimal vol = volume.GetVolume(tab);
+                    if (vol != 0)
+                        tab.BuyAtMarket(vol);
                 }
             }
         }
