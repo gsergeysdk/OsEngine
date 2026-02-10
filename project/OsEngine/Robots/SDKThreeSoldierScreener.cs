@@ -75,7 +75,7 @@ namespace OsEngine.Robots.SoldiersScreener
             SmaFilterIsOn = CreateParameter("Sma filter is on", true);
             SmaFilterLen = CreateParameter("Sma filter Len", 100, 100, 300, 10);
             volume = new SDKVolume(this);
-            support = new SDKPositionsSupport(this);
+            support = new SDKPositionsSupport(this, _tab);
 
             _tradePeriodsSettings = new NonTradePeriods(name);
             _tradePeriodsSettings.Load();
