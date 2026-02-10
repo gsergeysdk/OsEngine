@@ -4,6 +4,7 @@ using OsEngine.Language;
 using OsEngine.Logging;
 using OsEngine.Market;
 using OsEngine.Market.Servers;
+using OsEngine.Market.Servers.GateIo.GateIoFutures.Entities;
 using OsEngine.OsTrader.Panels;
 using OsEngine.OsTrader.Panels.Attributes;
 using OsEngine.OsTrader.Panels.Tab;
@@ -43,6 +44,7 @@ namespace OsEngine.Robots.SDKRobots
         private StrategyParameterDecimal _lrDeviation;
         private StrategyParameterBool _smaFilterIsOn;
         private StrategyParameterInt _smaFilterLen;
+        private StrategyParameterDecimal _trailStop;
 
         // Volatility clusters
         private VolatilityStageClusters _volatilityStageClusters = new VolatilityStageClusters();
@@ -100,7 +102,7 @@ namespace OsEngine.Robots.SDKRobots
             _smaFilterLen = CreateParameter("Sma filter Len", 170, 100, 300, 10);
             _lrLength = CreateParameter("Linear regression Length", 180, 20, 300, 10);
             _lrDeviation = CreateParameter("Linear regression deviation", 2.4m, 1, 4, 0.1m);
-
+            _trailStop = CreateParameter("Trail stop %", 5m, 0, 20, 1m);
 
             // Create indicator LinearRegressionChannelFast_Indicator
             _screenerTab.CreateCandleIndicator(1, "LinearRegressionChannelFast_Indicator", new List<string>() { _lrLength.ValueInt.ToString(), "Close", _lrDeviation.ValueDecimal.ToString(), _lrDeviation.ValueDecimal.ToString() }, "Prime");
@@ -115,7 +117,7 @@ namespace OsEngine.Robots.SDKRobots
             DeleteEvent += AlgoStart1ScreenerLinearRegression_DeleteEvent;
 
             volume = new SDKVolume(this);
-            support = new SDKPositionsSupport(this);
+            support = new SDKPositionsSupport(this, _screenerTab);
 
             // Subscribe to receive events/commands from Telegram
             ServerTelegram.GetServer().TelegramCommandEvent += TelegramCommandHandler;
@@ -301,9 +303,10 @@ namespace OsEngine.Robots.SDKRobots
                     {// Sma filter
                         Aindicator sma = (Aindicator)tab.Indicators[1];
 
-                        decimal lastSma = sma.DataSeries[0].Last;
+                        decimal lastSma = sma.DataSeries[0].Values[^1];
+                        decimal prevSma = sma.DataSeries[0].Values[^2];
 
-                        if (candleClose < lastSma)
+                        if (prevSma >= lastSma)
                         {
                             return;
                         }
@@ -347,6 +350,15 @@ namespace OsEngine.Robots.SDKRobots
                 if (lastClose <= lrDown)
                 {
                     tab.CloseAtIcebergMarket(pos, pos.OpenVolume, _icebergCount.ValueInt, 1000);
+                }
+                else
+                {
+                    //tab.CloseAtTrailingStopMarket(pos, lrDown);
+                    if (_trailStop.ValueDecimal != 0m)
+                    {
+                        decimal stop = lastClose - lastClose * (_trailStop.ValueDecimal / 100);
+                        tab.CloseAtTrailingStopMarket(pos, stop);
+                    }
                 }
             }
         }
