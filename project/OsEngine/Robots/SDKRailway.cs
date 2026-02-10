@@ -101,7 +101,7 @@ namespace OsEngine.Robots.SDKRobots
             this.DeleteEvent += AlgoStart4ScreenerRailway_DeleteEvent;
 
             volume = new SDKVolume(this);
-            support = new SDKPositionsSupport(this);
+            support = new SDKPositionsSupport(this, _tabScreener);
 
             // Subscribe to receive events/commands from Telegram
             ServerTelegram.GetServer().TelegramCommandEvent += TelegramCommandHandler;

@@ -2,6 +2,7 @@
 using OsEngine.Entity;
 using OsEngine.Market;
 using OsEngine.Market.Servers;
+using OsEngine.Market.Servers.GateIo.GateIoFutures.Entities;
 using OsEngine.OsTrader.Panels;
 using OsEngine.OsTrader.Panels.Tab;
 using System;
@@ -9,6 +10,7 @@ using System.Collections.Generic;
 using System.Data;
 using System.Globalization;
 using System.IO;
+using System.Security.Cryptography;
 using System.Text;
 using System.Windows.Documents;
 using TL;
@@ -20,12 +22,15 @@ namespace OsEngine.Robots.Helpers
     public class SDKPositionsSupport
     {
         private BotPanel panel;
+        private BotTabScreener tabScreener = null;
 
         // open filters
         public StrategyParameterBool checkByHistoryTradesBestPrice;
         public StrategyParameterBool checkByHistoryTradesWorstPrice;
         public StrategyParameterDecimal blockDaysAfterProfitTrade;
         public StrategyParameterDecimal blockDaysAfterLossTrade;
+        public StrategyParameterInt maxUnsafePositions;
+        public StrategyParameterDecimal unsafePositionPercent;
 
         public StrategyParameterBool checkDividendsCutOff;
         public StrategyParameterDecimal blockDaysBeforeDividends;
@@ -35,9 +40,10 @@ namespace OsEngine.Robots.Helpers
         private StrategyParameterButton setFilePathDividends;
         private StrategyParameterButton loadDividendsButton;
 
-        public SDKPositionsSupport(BotPanel panel)
+        public SDKPositionsSupport(BotPanel panel, BotTabScreener tab_screener = null)
         {
             this.panel = panel;
+            tabScreener = tab_screener;
             CreateSupportParameters();
             LoadDividendsTable();
         }
@@ -49,6 +55,8 @@ namespace OsEngine.Robots.Helpers
             checkByHistoryTradesWorstPrice = panel.CreateParameter("With worst price", true, "Support");
             blockDaysAfterProfitTrade = panel.CreateParameter("Block days after profit trade", 1m, 1, 10, 1, "Support");
             blockDaysAfterLossTrade = panel.CreateParameter("Block days after loss trade", 7m, 1, 10, 1, "Support");
+            maxUnsafePositions = panel.CreateParameter("Max unsafe positions", 0, 1, 10, 1, "Support");
+            unsafePositionPercent = panel.CreateParameter("Unsafe position percent", 5m, 1, 10, 1, "Support");
 
             panel.CreateParameterLabel("label2", "", "Dividends", 20, 10, System.Drawing.Color.White, "Support");
             checkDividendsCutOff = panel.CreateParameter("Check dividends", false, "Support");
@@ -117,6 +125,32 @@ namespace OsEngine.Robots.Helpers
                     TimeSpan diffTime = dividend.dividendLastDayDate - tab.TimeServerCurrent;
                     allowOpen &= diffTime.TotalDays > (double)blockDaysBeforeDividends.ValueDecimal;
                 }
+            }
+
+            if (allowOpen && maxUnsafePositions > 0 && tabScreener != null)
+            {
+                int countUnsafe = 0;
+                for (int i = tabScreener.PositionsOpenAll.Count - 1; i >= 0; i--)
+                {
+                    Position position = tabScreener.PositionsOpenAll[i];
+                    decimal ProfitOperationPercent = -100m;
+                    if (position.StopOrderPrice == 0m)
+                    {
+                        for (int j = tabScreener.Tabs.Count - 1; j >= 0; j--)
+                        {
+                            BotTabSimple tabSimple = tabScreener.Tabs[j];
+                            if (position.SecurityName == tabSimple.Security.Name)
+                                ProfitOperationPercent = tabSimple.PriceBestBid / position.EntryPrice * 100 - 100;
+                        }
+                    }
+                    if ((position.State == PositionStateType.Open || position.State == PositionStateType.Closing) &&
+                        ((position.StopOrderPrice == 0m && ProfitOperationPercent < unsafePositionPercent) ||
+                        (position.StopOrderPrice != 0m &&
+                        ((position.StopOrderPrice < position.EntryPrice && position.Direction == Side.Buy) ||
+                        (position.StopOrderPrice > position.EntryPrice && position.Direction == Side.Sell)))))
+                        countUnsafe++;
+                }
+                allowOpen = countUnsafe < maxUnsafePositions;
             }
 
             return allowOpen;
