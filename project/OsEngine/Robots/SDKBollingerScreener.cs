@@ -87,7 +87,7 @@ namespace OsEngine.Robots.Screeners
             trandCounter = CreateParameter("Trand Counter", 10, 10, 50, 10);
 
             volume = new SDKVolume(this);
-            support = new SDKPositionsSupport(this);
+            support = new SDKPositionsSupport(this, _tabScreener);
 
             _tradePeriodsSettings = new NonTradePeriods(name);
             _tradePeriodsSettings.Load();
