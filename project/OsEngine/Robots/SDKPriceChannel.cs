@@ -112,7 +112,7 @@ namespace OsEngine.Robots.SDKRobots
             DeleteEvent += AlgoStart3ScreenerPriceChannel_DeleteEvent;
 
             volume = new SDKVolume(this);
-            support = new SDKPositionsSupport(this);
+            support = new SDKPositionsSupport(this, _screenerTab);
 
             // Subscribe to receive events/commands from Telegram
             ServerTelegram.GetServer().TelegramCommandEvent += TelegramCommandHandler;
@@ -327,6 +327,8 @@ namespace OsEngine.Robots.SDKRobots
                 {
                     tab.CloseAtIcebergMarket(pos,pos.OpenVolume,_icebergCount.ValueInt,1000);
                 }
+                //else
+                //    tab.CloseAtTrailingStopMarket(pos, pcDown);
             }
         }
 
