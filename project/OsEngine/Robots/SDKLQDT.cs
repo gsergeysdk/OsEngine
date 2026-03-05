@@ -21,6 +21,8 @@ namespace OsEngine.Robots
         public StrategyParameterString TradeAssetInPortfolio;
         [Parameter(0.1, 0, 20, 1)]
         private StrategyParameterDecimal Slippage;
+        [Parameter(0.1, 0, 20, 1, "Margin money K from blocked")]
+        private StrategyParameterDecimal marginMoneyK;
         [Parameter(500.0, "Max count lots for trade")]
         private StrategyParameterDecimal maxCountForTrade;
 
@@ -178,6 +180,7 @@ namespace OsEngine.Robots
             decimal fullMoney = 0;
             decimal lqdtCount = 0;
             decimal lqdtMoney = 0;
+            decimal moneyBlocked = myPortfolio.ValueBlocked;
 
             for (int i = 0; i < positionOnBoard.Count; i++)
             {
@@ -187,7 +190,12 @@ namespace OsEngine.Robots
                     fullMoney = positionOnBoard[i].ValueCurrent;
             }
 
-            lqdtMoney = lqdtCount * _tab.PriceBestBid;
+            if (fullMoney > 0 && fullMoney > moneyBlocked * marginMoneyK)
+                fullMoney -= moneyBlocked * marginMoneyK; // брокер блочит часть средств под волатильность
+            else
+                fullMoney = 0;
+
+                lqdtMoney = lqdtCount * _tab.PriceBestBid;
 
             decimal qty = (fullMoney > 0 ? (fullMoney / _tab.PriceBestAsk) : (-fullMoney / _tab.PriceBestBid)) / _tab.Security.Lot;
             qty = Math.Round(qty, _tab.Security.DecimalsVolume, MidpointRounding.ToNegativeInfinity);
