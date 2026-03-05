@@ -303,10 +303,9 @@ namespace OsEngine.Robots.SDKRobots
                     {// Sma filter
                         Aindicator sma = (Aindicator)tab.Indicators[1];
 
-                        decimal lastSma = sma.DataSeries[0].Values[^1];
-                        decimal prevSma = sma.DataSeries[0].Values[^2];
+                        decimal lastSma = sma.DataSeries[0].Last;
 
-                        if (prevSma >= lastSma)
+                        if (candleClose < lastSma)
                         {
                             return;
                         }
