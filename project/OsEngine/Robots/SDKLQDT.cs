@@ -190,10 +190,13 @@ namespace OsEngine.Robots
                     fullMoney = positionOnBoard[i].ValueCurrent;
             }
 
-            if (fullMoney > 0 && fullMoney > moneyBlocked * marginMoneyK)
-                fullMoney -= moneyBlocked * marginMoneyK; // брокер блочит часть средств под волатильность
-            else
-                fullMoney = 0;
+            if (fullMoney > 0)
+            {
+                if (fullMoney > moneyBlocked * marginMoneyK)
+                    fullMoney -= moneyBlocked * marginMoneyK; // брокер блочит часть средств под волатильность
+                else
+                    fullMoney = 0;
+            }
 
                 lqdtMoney = lqdtCount * _tab.PriceBestBid;
 
