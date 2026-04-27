@@ -89,6 +89,7 @@ namespace OsEngine.Robots.SDKRobots
         private StrategyParameterDecimal _bollingerDeviation;
 
         private StrategyParameterDecimal _closeAtExpirationDays;
+        private StrategyParameterDecimal _closeByReverseLineK;
 
         private StrategyParameterString _contangoFilterRegime;
         private StrategyParameterInt _contangoFilterCountSecurities;
@@ -216,6 +217,7 @@ namespace OsEngine.Robots.SDKRobots
             _bollingerDeviation = CreateParameter("Bollinger deviation", 2.1m, 0.5m, 4, 0.1m, "Base");
 
             _closeAtExpirationDays = CreateParameter("Close before expiration days", 3.1m, 1, 4, 0.1m, "Base");
+            _closeByReverseLineK = CreateParameter("Close level from center to reverse line K", 1m, 0m, 1m, 0.1m, "Base");
 
             // GetVolume settings
             _volumeType = CreateParameter("Volume type", "Deposit percent", new[] { "Contracts", "Contract currency", "Deposit percent" }, "Base");
@@ -385,7 +387,7 @@ namespace OsEngine.Robots.SDKRobots
                 }
 
                 SendNewLogMessage($"\nBot {NameStrategyUniq} is {_regime.ValueString}.\n" +
-                                  $"Server Status - {(IsConnected ? "Connected" : "Empty")}.\n" +
+                                  $"Server Status - {(_base1.IsConnected && _futs1.IsConnected ? "Connected" : "Empty")}.\n" +
                                   $"Positions count {count}.\n" +
                                   $"Total invested {inputs.ToString("F2")}.\n" +
                                   $"Profit for all {profit.ToString("F2")}.\n"
@@ -444,7 +446,6 @@ namespace OsEngine.Robots.SDKRobots
         {
             futuresSource.CreateCandleIndicator(1, "Bollinger", new List<string>() { 
                 _bollingerLength.ValueInt.ToString(), _bollingerDeviation.ValueDecimal.ToString() }, "Prime");
-
         }
 
         private void UpdateSettingsInIndicators(BotTabSimple baseSource, BotTabScreener futuresSource)
@@ -800,15 +801,16 @@ namespace OsEngine.Robots.SDKRobots
 
             bool needToExit = false;
 
+            int indexLine = pos.Direction == Side.Buy ? 1 : 0;
+            decimal closeLevel = futuresBollinger.DataSeries[2].Last +
+                _closeByReverseLineK * (futuresBollinger.DataSeries[indexLine].Last - futuresBollinger.DataSeries[2].Last);
 
-            if (pos.Direction == Side.Buy
-                && futuresLastPrice < futuresBollinger.DataSeries[1].Last)
+            if (pos.Direction == Side.Buy && futuresLastPrice < closeLevel)
             {
                 needToExit = true;
             }
 
-            if (pos.Direction == Side.Sell
-                && futuresLastPrice > futuresBollinger.DataSeries[0].Last)
+            if (pos.Direction == Side.Sell && futuresLastPrice > closeLevel)
             {
                 needToExit = true;
             }
