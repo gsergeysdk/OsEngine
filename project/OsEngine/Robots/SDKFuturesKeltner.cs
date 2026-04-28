@@ -217,8 +217,8 @@ namespace OsEngine.Robots.SDKRobots
             _keltnerDeviation = CreateParameter("Keltner deviation", 3.9m, 1, 4, 0.1m, "Base");
 
             _closeAtExpirationDays = CreateParameter("Close before expiration days", 3.1m, 1, 4, 0.1m, "Base");
-                
-             // GetVolume settings
+
+            // GetVolume settings
             _volumeType = CreateParameter("Volume type", "Deposit percent", new[] { "Contracts", "Contract currency", "Deposit percent" }, "Base");
             _volume = CreateParameter("Volume", 15, 1.0m, 50, 4, "Base");
             _tradeAssetInPortfolio = CreateParameter("Asset in portfolio", "Prime", "Base");
@@ -387,7 +387,7 @@ namespace OsEngine.Robots.SDKRobots
                 }
 
                 SendNewLogMessage($"\nBot {NameStrategyUniq} is {_regime.ValueString}.\n" +
-                                  $"Server Status - {(IsConnected ? "Connected" : "Empty")}.\n" +
+                                  $"Server Status - {(_base1.IsConnected && _futs1.IsConnected ? "Connected" : "Empty")}.\n" +
                                   $"Positions count {count}.\n" +
                                   $"Total invested {inputs.ToString("F2")}.\n" +
                                   $"Profit for all {profit.ToString("F2")}.\n"
