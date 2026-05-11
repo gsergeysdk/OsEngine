@@ -1308,13 +1308,13 @@ namespace OsEngine.Robots.SDKRobots
 
             SetSecurities(_base6, _futs6, spotVtb, futuresVtb, myPortfolio, myServer);
 
-            Security spotGmk = securitiesAll.Find(s => s.Name == "GMKN" && s.SecurityType == SecurityType.Stock);
-            List<Security> futuresGmk =
+            Security spotNvtk = securitiesAll.Find(s => s.Name == "NVTK" && s.SecurityType == SecurityType.Stock);
+            List<Security> futuresNvtk =
                 securitiesAll.FindAll(s => s.SecurityType == SecurityType.Futures &&
-                (s.Name.StartsWith("GKH") || s.Name.StartsWith("GKM")
-                || s.Name.StartsWith("GKZ") || s.Name.StartsWith("GKU")));
+                (s.Name.StartsWith("NVH") || s.Name.StartsWith("NVM")
+                || s.Name.StartsWith("NVZ") || s.Name.StartsWith("NVU")));
 
-            SetSecurities(_base7, _futs7, spotGmk, futuresGmk, myPortfolio, myServer);
+            SetSecurities(_base7, _futs7, spotNvtk, futuresNvtk, myPortfolio, myServer);
 
             Security spotAlrs = securitiesAll.Find(s => s.Name == "ALRS" && s.SecurityType == SecurityType.Stock);
             List<Security> futuresAlrs =
