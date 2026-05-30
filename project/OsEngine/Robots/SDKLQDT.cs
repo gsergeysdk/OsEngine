@@ -19,8 +19,6 @@ namespace OsEngine.Robots
         private StrategyParameterString Regime;
         [Parameter("rub")]
         public StrategyParameterString TradeAssetInPortfolio;
-        [Parameter(0.1, 0, 20, 1)]
-        private StrategyParameterDecimal Slippage;
         [Parameter(5000, 0, 20, 1, "Minimum money value")]
         private StrategyParameterDecimal minMoney;
         [Parameter(500.0, "Max count lots for trade")]
@@ -194,7 +192,7 @@ namespace OsEngine.Robots
 
             decimal qty = (fullMoney > 0 ? (fullMoney / _tab.PriceBestAsk) : (-fullMoney / _tab.PriceBestBid)) / _tab.Security.Lot;
             qty = Math.Round(qty, _tab.Security.DecimalsVolume, MidpointRounding.ToNegativeInfinity);
-            if (qty < 1m)
+            if (qty < 5m)
                 return;
 
             if (fullMoney < 0 && lqdtMoney < -fullMoney)
@@ -206,19 +204,17 @@ namespace OsEngine.Robots
 
             if (fullMoney > 0 && qty > 1m)
             {
-                decimal entryPrice = _tab.PriceBestAsk + _tab.PriceBestAsk * (Slippage.ValueDecimal / 100);
                 List<Position> openPositions = _tab.PositionsOpenAll;
                 if (openPositions != null && openPositions.Count != 0)
-                    _tab.BuyAtLimitToPosition(openPositions[0], entryPrice, Math.Min(maxCountForTrade.ValueDecimal, qty));
+                    _tab.BuyAtMarketToPosition(openPositions[0], Math.Min(maxCountForTrade.ValueDecimal, qty));
                 else
-                    _tab.BuyAtLimit(Math.Min(maxCountForTrade.ValueDecimal, qty), entryPrice);
+                    _tab.BuyAtMarket(Math.Min(maxCountForTrade.ValueDecimal, qty));
             }
             else
             {
-                decimal closePrice = _tab.PriceBestBid - _tab.PriceBestBid * (Slippage.ValueDecimal / 100);
                 List<Position> openPositions = _tab.PositionsOpenAll;
                 if (openPositions != null && openPositions.Count != 0)
-                    _tab.CloseAtLimit(openPositions[0], closePrice,
+                    _tab.CloseAtMarket(openPositions[0],
                         Math.Min(maxCountForTrade.ValueDecimal, Math.Min(openPositions[0].OpenVolume, qty)));
             }
         }
