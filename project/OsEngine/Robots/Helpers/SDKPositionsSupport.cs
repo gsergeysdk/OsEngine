@@ -202,7 +202,7 @@ namespace OsEngine.Robots.Helpers
                 bool firstLine = true;
                 foreach (var line in lines)
                 {
-                    var cells = line.Split(',');
+                    var cells = line.Split((char)9); // TAB
                     if (firstLine)
                     {
                         firstLine = false;
@@ -211,8 +211,8 @@ namespace OsEngine.Robots.Helpers
                     var item = new DividendData();
                     item.SecName = cells[1];
                     var cultureInfo = new CultureInfo("ru-RU");
-                    item.dividendCutOffDate = DateTime.Parse(cells[6], cultureInfo);
-                    item.dividendLastDayDate = DateTime.Parse(cells[5], cultureInfo);
+                    item.dividendCutOffDate = DateTime.Parse(cells[7], cultureInfo);
+                    item.dividendLastDayDate = DateTime.Parse(cells[6], cultureInfo);
                     item.dividendValue = cells[3].ToDecimal();
                     dividends.Add(item);
                 }
