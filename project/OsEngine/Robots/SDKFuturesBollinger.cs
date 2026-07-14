@@ -87,6 +87,8 @@ namespace OsEngine.Robots.SDKRobots
         // Indicator settings
         private StrategyParameterInt _bollingerLength;
         private StrategyParameterDecimal _bollingerDeviation;
+        public StrategyParameterInt _maFilterLength;
+        public StrategyParameterDecimal _maThressholdValue;
 
         private StrategyParameterDecimal _closeAtExpirationDays;
         private StrategyParameterDecimal _closeByReverseLineK;
@@ -215,6 +217,8 @@ namespace OsEngine.Robots.SDKRobots
 
             _bollingerLength = CreateParameter("Bollinger Length", 230, 40, 300, 10, "Base");
             _bollingerDeviation = CreateParameter("Bollinger deviation", 2.1m, 0.5m, 4, 0.1m, "Base");
+            _maFilterLength = CreateParameter("MA filter length", 200, 100, 500, 10, "Base");
+            _maThressholdValue = CreateParameter("MA thresshold value (percent)", 0.1m, 0m, 1m, 0.01m, "Base");
 
             _closeAtExpirationDays = CreateParameter("Close before expiration days", 3.1m, 1, 4, 0.1m, "Base");
             _closeByReverseLineK = CreateParameter("Close level from center to reverse line K", 1m, 0m, 1m, 0.1m, "Base");
@@ -446,6 +450,8 @@ namespace OsEngine.Robots.SDKRobots
         {
             futuresSource.CreateCandleIndicator(1, "Bollinger", new List<string>() { 
                 _bollingerLength.ValueInt.ToString(), _bollingerDeviation.ValueDecimal.ToString() }, "Prime");
+
+            futuresSource.CreateCandleIndicator(2, "DEMA_ssma", new List<string>() { _maFilterLength.ValueInt.ToString() }, "Prime");
         }
 
         private void UpdateSettingsInIndicators(BotTabSimple baseSource, BotTabScreener futuresSource)
@@ -456,6 +462,12 @@ namespace OsEngine.Robots.SDKRobots
                  _bollingerLength.ValueInt.ToString(),
                  _bollingerDeviation.ValueDecimal.ToString()
              };
+
+            futuresSource._indicators[1].Parameters
+                = new List<string>()
+                {
+                    _maFilterLength.ValueInt.ToString()
+                };
 
             futuresSource.UpdateIndicatorsParameters();
         }
@@ -720,6 +732,7 @@ namespace OsEngine.Robots.SDKRobots
             // 1 берём по обоим вкладкам боллинджеры
 
             Aindicator futuresBollinger = (Aindicator)futuresSource.Indicators[0];
+            Aindicator ma = (Aindicator)futuresSource.Indicators[1];
 
             if (futuresBollinger.DataSeries[0].Last == 0)
             {
@@ -728,10 +741,14 @@ namespace OsEngine.Robots.SDKRobots
 
             // 2 проверяем условия 
 
+            decimal maLast = ma.DataSeries[0].Last;
+            decimal maPrev = ma.DataSeries[0].Values[^11];
+
             decimal futuresLastPrice = futuresCandles[^1].Close;
 
             if(_regime.ValueString != "OnlyShort"
-                && futuresLastPrice > futuresBollinger.DataSeries[0].Last)   // фьючерс выше верхнего боллинджера
+                && futuresLastPrice > futuresBollinger.DataSeries[0].Last   // фьючерс выше верхнего боллинджера
+                && maLast > maPrev * (1m + _maThressholdValue.ValueDecimal * 0.01m))
             {// Лонг
 
                 if(_contangoFilterRegime.ValueString != "Off")
@@ -749,7 +766,8 @@ namespace OsEngine.Robots.SDKRobots
                 
             }
             else if (_regime.ValueString != "OnlyLong"
-                && futuresLastPrice < futuresBollinger.DataSeries[1].Last) // фьючерс ниже нижнего боллинджера
+                && futuresLastPrice < futuresBollinger.DataSeries[1].Last // фьючерс ниже нижнего боллинджера
+                && maLast < maPrev * (1m - _maThressholdValue.ValueDecimal * 0.01m))
             {// Шорт
 
                 if (_contangoFilterRegime.ValueString != "Off")
