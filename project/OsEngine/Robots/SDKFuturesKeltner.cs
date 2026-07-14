@@ -87,6 +87,8 @@ namespace OsEngine.Robots.SDKRobots
         private StrategyParameterInt _keltnerAtrLength;
         private StrategyParameterInt _keltnerEmaLength;
         private StrategyParameterDecimal _keltnerDeviation;
+        private StrategyParameterInt _maFilterLength;
+        private StrategyParameterDecimal _maThressholdValue;
 
         private StrategyParameterDecimal _closeAtExpirationDays;
 
@@ -215,6 +217,8 @@ namespace OsEngine.Robots.SDKRobots
             _keltnerEmaLength = CreateParameter("Keltner ema Length", 150, 20, 300, 10, "Base");
             _keltnerAtrLength = CreateParameter("Keltner atr Length", 24, 20, 300, 10, "Base");
             _keltnerDeviation = CreateParameter("Keltner deviation", 3.9m, 1, 4, 0.1m, "Base");
+            _maFilterLength = CreateParameter("MA filter length", 200, 100, 500, 10, "Base");
+            _maThressholdValue = CreateParameter("MA thresshold value (percent)", 0.1m, 0m, 1m, 0.01m, "Base");
 
             _closeAtExpirationDays = CreateParameter("Close before expiration days", 3.1m, 1, 4, 0.1m, "Base");
 
@@ -450,6 +454,8 @@ namespace OsEngine.Robots.SDKRobots
                 _keltnerDeviation.ValueDecimal.ToString(),
                 "Typical"
             }, "Prime");
+
+            futuresSource.CreateCandleIndicator(2, "DEMA_ssma", new List<string>() { _maFilterLength.ValueInt.ToString() }, "Prime");
         }
 
         private void UpdateSettingsInIndicators(BotTabSimple baseSource, BotTabScreener futuresSource)
@@ -463,6 +469,12 @@ namespace OsEngine.Robots.SDKRobots
                 _keltnerDeviation.ValueDecimal.ToString(),
                 "Typical"
              };
+
+            futuresSource._indicators[1].Parameters
+                = new List<string>()
+                {
+                    _maFilterLength.ValueInt.ToString()
+                };
 
             futuresSource.UpdateIndicatorsParameters();
         }
@@ -727,6 +739,7 @@ namespace OsEngine.Robots.SDKRobots
             // 1 берём по обоим вкладкам боллинджеры
 
             Aindicator keltner = (Aindicator)futuresSource.Indicators[0];
+            Aindicator ma = (Aindicator)futuresSource.Indicators[1];
 
             if (keltner.DataSeries[0].Last == 0)
             {
@@ -734,11 +747,14 @@ namespace OsEngine.Robots.SDKRobots
             }
 
             // 2 проверяем условия 
+            decimal maLast = ma.DataSeries[0].Last;
+            decimal maPrev = ma.DataSeries[0].Values[^11];
 
             decimal futuresLastPrice = futuresCandles[^1].Close;
 
             if (_regime.ValueString != "OnlyShort"
-                && futuresLastPrice > keltner.DataSeries[1].Last)   // фьючерс выше верхнего боллинджера
+                && futuresLastPrice > keltner.DataSeries[1].Last   // фьючерс выше верхнего боллинджера
+                && maLast > maPrev * (1m + _maThressholdValue.ValueDecimal * 0.01m))
             {// Лонг
 
                 if (_contangoFilterRegime.ValueString != "Off")
@@ -756,7 +772,8 @@ namespace OsEngine.Robots.SDKRobots
 
             }
             else if (_regime.ValueString != "OnlyLong"
-                && futuresLastPrice < keltner.DataSeries[2].Last) // фьючерс ниже нижнего боллинджера
+                && futuresLastPrice < keltner.DataSeries[2].Last // фьючерс ниже нижнего боллинджера
+                && maLast < maPrev * (1m - _maThressholdValue.ValueDecimal * 0.01m))
             {// Шорт
 
                 if (_contangoFilterRegime.ValueString != "Off")
