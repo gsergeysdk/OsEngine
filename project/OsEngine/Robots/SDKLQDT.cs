@@ -21,6 +21,8 @@ namespace OsEngine.Robots
         public StrategyParameterString TradeAssetInPortfolio;
         [Parameter(5000, 0, 20, 1, "Minimum money value")]
         private StrategyParameterDecimal minMoney;
+        [Parameter(500, 0, 20, 1, "Minimum money trade")]
+        private StrategyParameterDecimal minMoneyTrade;
         [Parameter(500.0, "Max count lots for trade")]
         private StrategyParameterDecimal maxCountForTrade;
 
@@ -108,6 +110,7 @@ namespace OsEngine.Robots
                 decimal inputs = 0;
                 decimal freeMoney = 0;
                 decimal fullMoney = 0;
+                decimal unrealizedPnl = 0;
 
                 Journal.Journal curJournal = _tab.GetJournal();
 
@@ -123,6 +126,7 @@ namespace OsEngine.Robots
                 if (myPortfolio != null)
                 {
                     fullMoney = myPortfolio.ValueCurrent;
+                    unrealizedPnl = myPortfolio.UnrealizedPnl;
                     List<PositionOnBoard> positionOnBoard = myPortfolio.GetPositionOnBoard();
                     if (positionOnBoard != null)
                     {
@@ -140,6 +144,7 @@ namespace OsEngine.Robots
                                   $"Total invested {inputs.ToString("F2")}.\n" +
                                   $"Profit for all {profit.ToString("F2")}.\n" +
                                   $"Portfolio full money {fullMoney.ToString("F2")}.\n" +
+                                  $"Portfolio varmarge money {unrealizedPnl.ToString("F2")}.\n" +
                                   $"Portfolio free money {freeMoney.ToString("F2")}.\n"
                                   , LogMessageType.User);
             }
@@ -178,6 +183,7 @@ namespace OsEngine.Robots
             decimal fullMoney = 0;
             decimal lqdtCount = 0;
             decimal lqdtMoney = 0;
+            decimal unrealizedPnl = myPortfolio.UnrealizedPnl;
 
             for (int i = 0; i < positionOnBoard.Count; i++)
             {
@@ -188,11 +194,13 @@ namespace OsEngine.Robots
             }
 
             fullMoney -= minMoney;
+            if (unrealizedPnl > 0m)
+                fullMoney -= unrealizedPnl;
             lqdtMoney = lqdtCount * _tab.PriceBestBid;
 
             decimal qty = (fullMoney > 0 ? (fullMoney / _tab.PriceBestAsk) : (-fullMoney / _tab.PriceBestBid)) / _tab.Security.Lot;
             qty = Math.Round(qty, _tab.Security.DecimalsVolume, MidpointRounding.ToNegativeInfinity);
-            if (qty < 5m)
+            if (Math.Abs(fullMoney) < minMoneyTrade)
                 return;
 
             if (fullMoney < 0 && lqdtMoney < -fullMoney)
