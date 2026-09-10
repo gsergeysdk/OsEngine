@@ -110,8 +110,6 @@ namespace OsEngine.Robots.MyRobots
         private StrategyParameterDecimal _minTradeMoney;
         private StrategyParameterString _tradeTo;
         private StrategyParameterDecimal _cashInflowTriggerPercent;
-        private StrategyParameterString _execSplit;
-        private StrategyParameterInt _execDelaySec;
         private StrategyParameterInt _pendingBuysTtlBars;
         private StrategyParameterInt _staleBarsLimit;
 
@@ -189,6 +187,42 @@ namespace OsEngine.Robots.MyRobots
         private DateTime _lastBarTime = DateTime.MinValue;
 
         private int _barsAfterPendingBuys;
+
+        /// <summary>
+        /// Продажи акций и золота, финансирующие отложенный план покупок.
+        ///
+        /// Хранится отдельно от денежной ноги по той же причине, по которой их разделяет
+        /// VerifyPreviousSells: последствия у провалов разные. Не исполнились продажи акций -
+        /// портфель не изменился и ребалансировка откатывается целиком; не исполнилась
+        /// денежная нога - откатывается только ступень лестницы. В объединённом счёте
+        /// исполнившаяся денежная нога замаскировала бы провал акций
+        /// </summary>
+        private List<KorovinWaitOrder> _pendingStockOrders;
+
+        /// <summary>
+        /// Продажа денежной позиции, финансирующая отложенный план покупок
+        /// </summary>
+        private List<KorovinWaitOrder> _pendingLqdtOrders;
+
+        /// <summary>
+        /// Когда план встал в ожидание. Нужно только для журнала: по этой отметке видно,
+        /// сколько заняло ожидание и не выродился ли быстрый путь в ожидание свечи
+        /// </summary>
+        private DateTime _pendingSince = DateTime.MinValue;
+
+        /// <summary>
+        /// Свободные деньги брокера ДО отправки продаж: точка отсчёта, от которой видно,
+        /// что выручка зачислена. -1 означает, что брокер денежную позицию не отдаёт
+        /// и проверка по деньгам пропускается
+        /// </summary>
+        private decimal _pendingCashAtPlan = -1;
+
+        /// <summary>
+        /// План покупок ждёт исполнения продаж. Читается из потока коннектора без лока -
+        /// это только фильтр, чтобы не входить в лок на каждом тике серверного времени;
+        /// настоящая проверка идёт под локом
+        /// </summary>
+        private volatile bool _waitingForSells;
 
         private TimeSpan _barLength = TimeSpan.Zero;
 
@@ -367,6 +401,13 @@ namespace OsEngine.Robots.MyRobots
 
             DisableDoubleExit();
 
+            // насос для отложенного плана покупок. Серверное время идёт непрерывно
+            // и не зависит от ликвидности инструмента, а событие портфеля приходит ровно
+            // тогда, когда брокер пересчитал свободные деньги - вместе они заменяют
+            // ожидание фиксированной паузой
+            _tabLqdt.ServerTimeChangeEvent += Lqdt_ServerTimeChangeEvent;
+            _tabLqdt.PortfolioOnExchangeChangedEvent += Lqdt_PortfolioChangedEvent;
+
             _tabGold.PositionOpeningFailEvent += Tab_PositionOpeningFailEvent;
             _tabGold.PositionClosingFailEvent += Gold_PositionClosingFailEvent;
             _tabLqdt.PositionOpeningFailEvent += Tab_PositionOpeningFailEvent;
@@ -463,8 +504,6 @@ namespace OsEngine.Robots.MyRobots
             _minTradeMoney = CreateParameter("Min trade money", 5000m, 0m, 1000000m, 1000m, "Execution");
             _tradeTo = CreateParameter("Trade to", "Target", new[] { "Target", "BandEdge" }, "Execution");
             _cashInflowTriggerPercent = CreateParameter("Cash inflow trigger percent", 1m, 0m, 50m, 0.5m, "Execution");
-            _execSplit = CreateParameter("Exec split", "NextBar", new[] { "NextBar", "SameBar" }, "Execution");
-            _execDelaySec = CreateParameter("Exec delay sec", 5, 0, 120, 1, "Execution");
             _pendingBuysTtlBars = CreateParameter("Pending buys ttl bars", 3, 1, 50, 1, "Execution");
             _staleBarsLimit = CreateParameter("Stale bars limit", 5, 1, 100, 1, "Execution");
             _tradeToleranceBars = CreateParameter("Trade tolerance bars", 1, 0, 10, 1, "Execution");
@@ -766,6 +805,92 @@ namespace OsEngine.Robots.MyRobots
         private void Screener_PositionOpeningFailEvent(Position position, BotTabSimple tab)
         {
             Tab_PositionOpeningFailEvent(position);
+        }
+
+        private void Lqdt_ServerTimeChangeEvent(DateTime time)
+        {
+            TryFinishPendingBuys();
+        }
+
+        private void Lqdt_PortfolioChangedEvent(Portfolio portfolio)
+        {
+            TryFinishPendingBuys();
+        }
+
+        /// <summary>
+        /// Досрочно исполнить план покупок, если продажи под него уже отработали.
+        ///
+        /// Раньше план всегда ждал следующего бара. На часовом таймфрейме это означало
+        /// час между расчётом и покупкой: цены за это время уходили, денег переставало
+        /// хватать, и заявка последнего в списке актива отклонялась брокером. Ждать надо
+        /// не бар, а зачисления выручки - а о нём говорят сами события коннектора.
+        ///
+        /// Флаг проверяется до лока: событие серверного времени приходит постоянно, и входить
+        /// ради него в общий лок робота, когда ждать нечего, незачем
+        /// </summary>
+        private void TryFinishPendingBuys()
+        {
+            if (_waitingForSells == false
+                || StartProgram != StartProgram.IsOsTrader)
+            {
+                return;
+            }
+
+            // не lock, а попытка без ожидания. Лок общий с главным циклом, а тот держит его
+            // долго на тяжёлых участках - пересборка ряда индекса, проход лестницы по истории,
+            // восстановление из журнала. Поток серверного времени один на всё подключение:
+            // заблокировав его, робот притормозил бы рассылку времени остальным роботам.
+            // Терять тут нечего - следующее событие придёт через секунду
+            bool locked = false;
+
+            try
+            {
+                Monitor.TryEnter(_locker, 0, ref locked);
+
+                if (locked == false)
+                {
+                    return;
+                }
+
+                if (_waitingForSells == false)
+                {
+                    return;
+                }
+
+                if (_regime.ValueString == "Off"
+                    || _regime.ValueString == "OnlyClosePosition")
+                {
+                    return;
+                }
+
+                // Торговое окно проверяется по текущему времени, а не по времени бара.
+                // План живёт до Pending buys ttl bars, и продажи могут добраться до Done
+                // сильно позже своего бара - тогда покупки ушли бы в вечернюю сессию либо
+                // в клиринг, то есть ровно туда, куда робот сознательно не ходит.
+                // Барьер данных дублировать не нужно: план составлен на этом же баре,
+                // и устареть сильнее, чем при его составлении, данные не успели
+                DateTime now = _tabLqdt == null ? DateTime.MinValue : _tabLqdt.TimeServerCurrent;
+
+                if (now != DateTime.MinValue
+                    && _nonTradePeriods != null
+                    && _nonTradePeriods.CanTradeThisTime(now) == false)
+                {
+                    return;
+                }
+
+                TryExecutePendingBuys(_lastBarTime);
+            }
+            catch (Exception error)
+            {
+                SendNewLogMessage(error.ToString(), LogMessageType.Error);
+            }
+            finally
+            {
+                if (locked)
+                {
+                    Monitor.Exit(_locker);
+                }
+            }
         }
 
         private void Screener_PositionClosingFailEvent(Position position, BotTabSimple tab)
@@ -1085,6 +1210,11 @@ namespace OsEngine.Robots.MyRobots
             _noPriceReported.Clear();
             _lotTooBigReported.Clear();
             _barsAfterPendingBuys = 0;
+            _pendingStockOrders = null;
+            _pendingLqdtOrders = null;
+            _pendingCashAtPlan = -1;
+            _pendingSince = DateTime.MinValue;
+            _waitingForSells = false;
             _warmupMessageSent = false;
             _indexCacheLoaded = false;
             _isWarmup = false;
@@ -2234,26 +2364,93 @@ namespace OsEngine.Robots.MyRobots
             return StartProgram == StartProgram.IsOsTrader;
         }
 
-        private decimal GetPortfolioValue()
+        /// <summary>
+        /// Свободные рубли по данным брокера или -1, если их не определить.
+        ///
+        /// Это не то же самое, что cash из EvaluatePortfolio. Тот считается как
+        /// ValueCurrent - стоимость позиций, а ValueCurrent у большинства коннекторов -
+        /// полная стоимость счёта: у TInvest это TotalAmountPortfolio, у Алора
+        /// portfolioLiquidationValue. От продажи бумаги такая величина не меняется вовсе -
+        /// бумага меняется на деньги той же стоимости. Значит вычисленный cash растёт
+        /// в тот момент, когда уменьшилась позиция в табе, а не когда пришли деньги,
+        /// и проверять им зачисление бессмысленно: она повторяет проверку по состоянию заявки.
+        ///
+        /// Настоящие свободные деньги лежат отдельной денежной позицией портфеля. У TInvest
+        /// это позиция валюты rub, и в неё уже заложены заблокированные средства
+        /// (valuePortfolio - blockRub). Если такой позиции нет - у коннектора её может
+        /// не быть вовсе, - возвращаем -1, и проверка по деньгам просто пропускается:
+        /// блокировать из-за отсутствия данных план нельзя
+        /// </summary>
+        private decimal GetBrokerFreeMoney()
         {
-            Portfolio portfolio = null;
+            try
+            {
+                Portfolio portfolio = GetTradePortfolio();
 
+                if (portfolio == null)
+                {
+                    return -1;
+                }
+
+                List<PositionOnBoard> poses = portfolio.GetPositionOnBoard();
+
+                if (poses == null)
+                {
+                    return -1;
+                }
+
+                for (int i = 0; i < poses.Count; i++)
+                {
+                    if (poses[i] == null
+                        || string.IsNullOrEmpty(poses[i].SecurityNameCode))
+                    {
+                        continue;
+                    }
+
+                    if (poses[i].SecurityNameCode.Equals("rub",
+                        StringComparison.OrdinalIgnoreCase))
+                    {
+                        return poses[i].ValueCurrent;
+                    }
+                }
+
+                return -1;
+            }
+            catch (Exception error)
+            {
+                SendNewLogMessage(error.ToString(), LogMessageType.Error);
+
+                return -1;
+            }
+        }
+
+        private Portfolio GetTradePortfolio()
+        {
             if (_tabLqdt != null
                 && _tabLqdt.Portfolio != null)
             {
-                portfolio = _tabLqdt.Portfolio;
+                return _tabLqdt.Portfolio;
             }
-            else if (_tabGold != null
+
+            if (_tabGold != null
                 && _tabGold.Portfolio != null)
             {
-                portfolio = _tabGold.Portfolio;
+                return _tabGold.Portfolio;
             }
-            else if (_tabStocks != null
+
+            if (_tabStocks != null
                 && _tabStocks.Tabs != null
                 && _tabStocks.Tabs.Count > 0)
             {
-                portfolio = _tabStocks.Tabs[0].Portfolio;
+                return _tabStocks.Tabs[0].Portfolio;
             }
+
+            return null;
+        }
+
+        private decimal GetPortfolioValue()
+        {
+            Portfolio portfolio = GetTradePortfolio();
 
             if (portfolio == null)
             {
@@ -3396,6 +3593,44 @@ namespace OsEngine.Robots.MyRobots
         /// Продажи акций не исполнились ни по одной бумаге: портфель не изменился,
         /// и ребалансировка не должна считаться состоявшейся вовсе
         /// </summary>
+        /// <summary>
+        /// Сколько денег реально принесла продажа денежной позиции
+        /// </summary>
+        private decimal GetLqdtExecutedMoney(KorovinRebalanceRollback rollback)
+        {
+            if (rollback == null
+                || rollback.LqdtOrders == null
+                || rollback.LqdtOrders.Count == 0)
+            {
+                return 0;
+            }
+
+            decimal lot = _tabLqdt == null || _tabLqdt.Security == null
+                ? 1m
+                : _tabLqdt.Security.Lot;
+
+            if (lot <= 0)
+            {
+                lot = 1m;
+            }
+
+            decimal money = 0;
+
+            for (int i = 0; i < rollback.LqdtOrders.Count; i++)
+            {
+                Order order = rollback.LqdtOrders[i];
+
+                if (order == null)
+                {
+                    continue;
+                }
+
+                money += order.VolumeExecute * order.PriceReal * lot;
+            }
+
+            return money;
+        }
+
         private void RollbackWholeRebalance(KorovinRebalanceRollback rollback)
         {
             _state.LastRebalanceDate = rollback.LastRebalanceDate;
@@ -3407,12 +3642,27 @@ namespace OsEngine.Robots.MyRobots
             // повод вернулся бы на следующем же баре и ошибка повторялась бы до вечера
             _lastProcessedDate = rollback.BarTime.Date;
 
+            // без этого откат обещает больше, чем делает: отложенный план пережил бы его
+            // и на следующем баре докупил бы под ребалансировку, которой больше нет
+            ClearPendingBuys();
+
             SaveState();
+
+            // Списки продаж разведены как раз потому, что денежная нога могла пройти, когда
+            // акции не прошли. Сказать в этом случае «портфель не изменился» значит
+            // противоречить соседнему сообщению об откате ступени лестницы
+            decimal lqdtMoney = GetLqdtExecutedMoney(rollback);
+
+            string tail = lqdtMoney > 0
+                ? "Позиции по акциям и золоту не изменились, но денежная позиция продана на "
+                    + Math.Round(lqdtMoney) + ": эти деньги остались на счёте и будут "
+                    + "размещены следующей ребалансировкой. Повод "
+                : "Портфель не изменился, повод ";
 
             SendExecutionProblem("Ребалансировка "
                 + rollback.BarTime.ToString("dd.MM.yyyy HH:mm", CultureInfo.InvariantCulture)
-                + " откачена: заявки на продажу ушли, но не исполнилось ни одной. Портфель "
-                + "не изменился, повод " + rollback.Reason + " снова считается неотработанным "
+                + " откачена: заявки на продажу акций ушли, но не исполнилось ни одной. "
+                + tail + rollback.Reason + " снова считается неотработанным "
                 + "и вернётся на следующий торговый день");
         }
 
@@ -3537,6 +3787,13 @@ namespace OsEngine.Robots.MyRobots
         private void ExecuteRebalance(List<KorovinAsset> assets, decimal equity, decimal cash,
             string reason, DateTime barTime)
         {
+            // точка отсчёта для проверки зачисления - ДО отправки продаж. Заявка по ликвидной
+            // бумаге исполняется за десятки миллисекунд, а денежная позиция портфеля
+            // обновляется своим потоком: замерь её после отправки - и выручка уже успевших
+            // продаж попадёт и в точку отсчёта, и в ожидаемую сумму, то есть будет учтена
+            // дважды. Порог станет недостижимым, и быстрый путь молча выродится в ожидание свечи
+            decimal brokerCashAtPlan = GetBrokerFreeMoney();
+
             bool reopen = IsReopenAllowed();
             bool onlyBuys = reason == "CashInflow" || _regime.ValueString == "OnlyRebalanceNoNewMoney";
             reopen = reopen && onlyBuys == false;
@@ -3845,6 +4102,8 @@ namespace OsEngine.Robots.MyRobots
                 ? 0
                 : needBuy - cash - sellsMoney;
 
+            decimal lqdtSent = 0;
+
             // в режиме докупки без продаж денежная позиция тоже не распродаётся:
             // покупки идут только на реально свободные деньги
             if (moneyFromLqdt > 0
@@ -3852,7 +4111,7 @@ namespace OsEngine.Robots.MyRobots
             {
                 decimal lqdtPlanned;
 
-                decimal lqdtSent = SellLqdt(assets, moneyFromLqdt, reopen, lqdtFree,
+                lqdtSent = SellLqdt(assets, moneyFromLqdt, reopen, lqdtFree,
                     rollback.LqdtOrders, out lqdtPlanned);
 
                 // заявки не создались вовсе - это видно сразу, ждать бара незачем.
@@ -3883,12 +4142,14 @@ namespace OsEngine.Robots.MyRobots
                 if (lqdtAsset != null
                     && sellsMoney > 0)
                 {
-                    // выручка вернётся в денежную позицию следующим баром, когда деньги
-                    // от продаж уже зачислены. Объём там пересчитывается по реальному кэшу
+                    // выручка вернётся в денежную позицию, как только продажи будут
+                    // зачислены. Объём пересчитывается по реальному кэшу на тот момент
                     plan.Add(lqdtAsset.Name, sellsMoney);
                 }
 
-                SetBuysPlan(plan, barTime, reason, assets);
+                SetBuysPlan(plan, barTime, reason, assets,
+                    BuildWaitOrders(rollback.SellOrders, assets),
+                    BuildWaitOrders(rollback.LqdtOrders, assets), brokerCashAtPlan);
                 return;
             }
 
@@ -3930,15 +4191,90 @@ namespace OsEngine.Robots.MyRobots
                 }
             }
 
-            SetBuysPlan(plan, barTime, reason, assets);
+            SetBuysPlan(plan, barTime, reason, assets,
+                BuildWaitOrders(rollback.SellOrders, assets),
+                BuildWaitOrders(rollback.LqdtOrders, assets), brokerCashAtPlan);
         }
 
         /// <summary>
-        /// Отложить покупки на следующую свечу либо выполнить их сразу в режиме SameBar.
+        /// Заявки, от которых зависят деньги под план покупок, вместе с размером лота:
+        /// ждём мы денег, а объём заявки задан в лотах
+        /// </summary>
+        private List<KorovinWaitOrder> BuildWaitOrders(List<Order> orders,
+            List<KorovinAsset> assets)
+        {
+            List<KorovinWaitOrder> result = new List<KorovinWaitOrder>();
+
+            for (int i = 0; orders != null && i < orders.Count; i++)
+            {
+                Order order = orders[i];
+
+                if (order == null)
+                {
+                    continue;
+                }
+
+                KorovinWaitOrder wait = new KorovinWaitOrder();
+                wait.Order = order;
+
+                KorovinAsset asset = GetAsset(assets, order.SecurityNameCode);
+
+                if (asset != null
+                    && asset.Lot > 0)
+                {
+                    wait.Lot = asset.Lot;
+                }
+
+                result.Add(wait);
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Сколько денег реально принесли эти заявки: объём исполнения на среднюю цену сделки
+        /// </summary>
+        private static decimal GetExecutedMoney(List<KorovinWaitOrder> orders)
+        {
+            decimal money = 0;
+
+            for (int i = 0; orders != null && i < orders.Count; i++)
+            {
+                KorovinWaitOrder wait = orders[i];
+
+                if (wait == null
+                    || wait.Order == null)
+                {
+                    continue;
+                }
+
+                money += wait.Order.VolumeExecute * wait.Order.PriceReal * wait.Lot;
+            }
+
+            return money;
+        }
+
+        private static int CountOrders(List<KorovinWaitOrder> orders)
+        {
+            return orders == null ? 0 : orders.Count;
+        }
+
+        /// <summary>
+        /// Исполнить план покупок: сразу, если деньги на счёте уже есть, иначе - как только
+        /// отработают продажи, которые его финансируют.
+        ///
+        /// Раньше план безусловно откладывался на следующую свечу. Это была не задержка ради
+        /// цены, а способ дождаться зачисления выручки, и цену она стоила несоразмерную:
+        /// на часовом таймфрейме между расчётом плана и покупкой проходил час, рынок за это
+        /// время уходил, суммы плана переставали сходиться с ценами, и заявка последнего
+        /// в списке актива отклонялась брокером по недостатку средств. Веса при этом тоже
+        /// считались по часовой давности оценке портфеля.
+        ///
         /// Пустой план означает, что покупать нечего: свободные деньги уходят в LQDT
         /// </summary>
         private void SetBuysPlan(Dictionary<string, decimal> plan, DateTime barTime,
-            string reason, List<KorovinAsset> assets)
+            string reason, List<KorovinAsset> assets, List<KorovinWaitOrder> stockOrders,
+            List<KorovinWaitOrder> lqdtOrders, decimal brokerCashAtPlan)
         {
             if (plan.Count == 0)
             {
@@ -3947,40 +4283,23 @@ namespace OsEngine.Robots.MyRobots
                 return;
             }
 
-            if (_execSplit.ValueString == "SameBar"
-                && StartProgram == StartProgram.IsOsTrader)
+            // продажи не потребовались - деньги на счёте уже лежат, ждать нечего
+            if (CountOrders(stockOrders) == 0
+                && CountOrders(lqdtOrders) == 0)
             {
-                if (_execDelaySec.ValueInt > 0)
-                {
-                    Thread.Sleep(_execDelaySec.ValueInt * 1000);
-                }
-
-                decimal spentSameBar = ExecuteBuysPlan(assets, plan);
-                ParkRestInLqdt(assets, spentSameBar);
-                SaveState();
+                ExecuteBuysNow(assets, plan);
                 return;
             }
 
-            // отложенный план исполняется на следующем баре, но следующего бара в окне
-            // может не быть: продажи уже прошли, а покупки назавтра будут аннулированы
-            // как относящиеся к другому торговому дню. Тогда исполняем здесь же - тем же
-            // путём, что и SameBar: деньги от только что отправленных продаж ещё не зачислены,
-            // поэтому нужна та же пауза перед проверкой кэша и парковка неизрасходованного
-            // остатка, иначе он молча пролежит без дела до следующей ребалансировки
+            // следующего бара в окне может не быть: продажи уже прошли, а покупки назавтра
+            // будут аннулированы как относящиеся к другому торговому дню. Тогда исполняем
+            // здесь же, не дожидаясь зачисления: неизрасходованный остаток паркуется
             if (IsLastBarOfWindow(barTime))
             {
                 SendNewLogMessage("Окно торговли заканчивается: план покупок исполняется "
                     + "в этом же баре, а не откладывается", LogMessageType.System);
 
-                if (StartProgram == StartProgram.IsOsTrader
-                    && _execDelaySec.ValueInt > 0)
-                {
-                    Thread.Sleep(_execDelaySec.ValueInt * 1000);
-                }
-
-                decimal spentLastBar = ExecuteBuysPlan(assets, plan);
-                ParkRestInLqdt(assets, spentLastBar);
-                SaveState();
+                ExecuteBuysNow(assets, plan);
                 return;
             }
 
@@ -3989,7 +4308,163 @@ namespace OsEngine.Robots.MyRobots
             _state.PendingReason = reason;
             _barsAfterPendingBuys = 0;
 
+            _pendingStockOrders = stockOrders;
+            _pendingLqdtOrders = lqdtOrders;
+            _pendingCashAtPlan = brokerCashAtPlan;
+            _pendingSince = DateTime.Now;
+            _waitingForSells = true;
+
             SaveState();
+
+            // первая проверка сразу: заявка могла исполниться мгновенно. Дальше проверку
+            // ведут события коннектора, а если они не придут - следующий бар
+            TryExecutePendingBuys(barTime);
+        }
+
+        private void ExecuteBuysNow(List<KorovinAsset> assets, Dictionary<string, decimal> plan)
+        {
+            decimal spent = ExecuteBuysPlan(assets, plan);
+
+            ParkRestInLqdt(assets, spent);
+
+            SaveState();
+        }
+
+        /// <summary>
+        /// Исполнить отложенный план, если продажи под него отработали и выручка зачислена.
+        ///
+        /// Условий два, и оба обязательны. Терминальное состояние заявки говорит, что сделка
+        /// состоялась, но свободные деньги в портфеле обновляются своим потоком и на мгновение
+        /// отстают - купить по неполному кэшу значит ужать план на ровном месте. Поэтому
+        /// второе условие сравнивает деньги с тем, что должно было прийти по реально
+        /// исполненному объёму. Именно эту задержку и пытался переждать вслепую Thread.Sleep
+        /// </summary>
+        private bool TryExecutePendingBuys(DateTime barTime)
+        {
+            if (_waitingForSells == false
+                || _state.PendingBuys.Count == 0)
+            {
+                return false;
+            }
+
+            int waitCount = CountOrders(_pendingStockOrders) + CountOrders(_pendingLqdtOrders);
+
+            if (waitCount == 0)
+            {
+                return false;
+            }
+
+            if (AreOrdersFinished(_pendingStockOrders) == false
+                || AreOrdersFinished(_pendingLqdtOrders) == false)
+            {
+                return false;
+            }
+
+            decimal stockMoney = GetExecutedMoney(_pendingStockOrders);
+            decimal arrived = stockMoney + GetExecutedMoney(_pendingLqdtOrders);
+
+            if (arrived <= 0)
+            {
+                // продажи отработали, но не исполнились: финансировать покупки нечем
+                SendExecutionProblem("План покупок отменён: продажи не исполнились ни по "
+                    + "одному инструменту, покупать не на что");
+
+                ClearPendingBuys();
+                SaveState();
+
+                return false;
+            }
+
+            if (CountOrders(_pendingStockOrders) > 0
+                && stockMoney <= 0)
+            {
+                // акции не продались, прошла только денежная нога. Ребалансировку откатит
+                // VerifyPreviousSells на следующем баре - покупать под неё нечего
+                SendExecutionProblem("План покупок отменён: продажи акций не исполнились "
+                    + "ни по одной бумаге, ребалансировка будет откачена");
+
+                ClearPendingBuys();
+                SaveState();
+
+                return false;
+            }
+
+            // Проверка по деньгам работает только там, где брокер отдаёт денежную позицию.
+            // Точка отсчёта тоже должна быть от него: смешивать её с вычисленным cash нельзя,
+            // это разные величины
+            decimal brokerCash = GetBrokerFreeMoney();
+
+            if (brokerCash >= 0
+                && _pendingCashAtPlan >= 0)
+            {
+                // допуск на комиссию и на разницу между средней ценой сделки и списанием
+                decimal tolerance = arrived / 100m;
+
+                if (brokerCash + tolerance < _pendingCashAtPlan + arrived)
+                {
+                    return false;
+                }
+            }
+
+            List<BotTabSimple> stockTabs = _tabStocks == null ? null : _tabStocks.Tabs;
+
+            if (stockTabs == null
+                || stockTabs.Count == 0)
+            {
+                return false;
+            }
+
+            List<KorovinAsset> assets = BuildAssets(stockTabs, barTime);
+
+            Dictionary<string, decimal> plan = new Dictionary<string, decimal>(_state.PendingBuys);
+
+            // Без этой записи успешное срабатывание быстрого пути неотличимо от молчаливого
+            // отката к ожиданию свечи: и то и другое выглядит одинаково - план исполнился.
+            // Бэктестом эту правку не проверить, так что журнал - единственный способ увидеть,
+            // что она работает
+            string waited = _pendingSince == DateTime.MinValue
+                ? "?"
+                : Math.Round((DateTime.Now - _pendingSince).TotalSeconds, 1)
+                    .ToString(CultureInfo.InvariantCulture);
+
+            SendNewLogMessage("Продажи исполнены за " + waited + " с, план покупок пошёл сразу: "
+                + plan.Count + " заявок, выручка " + Math.Round(arrived), LogMessageType.System);
+
+            // план списываем ДО отправки заявок и сразу пишем на диск: если процесс упадёт
+            // между этими действиями, план не повторится после перезапуска
+            ClearPendingBuys();
+            SaveState();
+
+            ExecuteBuysNow(assets, plan);
+
+            return true;
+        }
+
+        /// <summary>
+        /// Все ли заявки отработали. Partial не считается: объём ещё добирается
+        /// </summary>
+        private static bool AreOrdersFinished(List<KorovinWaitOrder> orders)
+        {
+            for (int i = 0; orders != null && i < orders.Count; i++)
+            {
+                KorovinWaitOrder wait = orders[i];
+
+                if (wait == null
+                    || wait.Order == null)
+                {
+                    continue;
+                }
+
+                if (wait.Order.State != OrderStateType.Done
+                    && wait.Order.State != OrderStateType.Fail
+                    && wait.Order.State != OrderStateType.Cancel
+                    && wait.Order.State != OrderStateType.LostAfterActive)
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         /// <summary>
@@ -4275,6 +4750,16 @@ namespace OsEngine.Robots.MyRobots
 
         private void ExecutePendingBuys(List<BotTabSimple> stockTabs, DateTime barTime)
         {
+            // сюда попадают только планы, которые не дождались зачисления по событиям.
+            // Отметка в журнале нужна, чтобы молчаливая деградация быстрого пути к ожиданию
+            // свечи была видна: без неё оба исхода выглядят одинаково.
+            // В тестере событийный путь выключен намеренно, там сообщать не о чём
+            if (StartProgram == StartProgram.IsOsTrader)
+            {
+                SendNewLogMessage("План покупок исполняется на следующем баре: "
+                    + "зачисление выручки по событиям не подтвердилось", LogMessageType.System);
+            }
+
             List<KorovinAsset> assets = BuildAssets(stockTabs, barTime);
 
             decimal equity;
@@ -5374,6 +5859,12 @@ namespace OsEngine.Robots.MyRobots
             _state.PendingBuysTime = DateTime.MinValue;
             _state.PendingReason = "";
             _barsAfterPendingBuys = 0;
+
+            _pendingStockOrders = null;
+            _pendingLqdtOrders = null;
+            _pendingCashAtPlan = -1;
+            _pendingSince = DateTime.MinValue;
+            _waitingForSells = false;
         }
 
         private void LogDecision(List<KorovinAsset> assets, decimal equity, decimal cash,
@@ -5696,6 +6187,23 @@ namespace OsEngine.Robots.MyRobots
         Stock,
         Gold,
         Lqdt
+    }
+
+    /// <summary>
+    /// Заявка на продажу, исполнения которой ждёт план покупок, вместе с размером лота:
+    /// без него по заявке не посчитать выручку
+    /// </summary>
+    public class KorovinWaitOrder
+    {
+        public Order Order;
+
+        /// <summary>
+        /// Размер лота инструмента. Объём заявки задан в лотах, а ждём мы денег: без лота
+        /// сложение объёмов по разным инструментам смысла не имеет - лот денежной позиции
+        /// стоит около полутора рублей, лот акции тысячи, и доля по лотам целиком
+        /// определялась бы денежной ногой
+        /// </summary>
+        public decimal Lot = 1m;
     }
 
     /// <summary>
