@@ -335,6 +335,11 @@ namespace OsEngine.Robots.MyRobots
 
         private DateTime _staleWarnDate = DateTime.MinValue;
 
+        /// <summary>
+        /// За какой день уже написана строка состояния. Нужен только для throttling
+        /// </summary>
+        private DateTime _statusDate = DateTime.MinValue;
+
         private bool _indexCacheLoaded;
 
         private bool _isWarmup;
@@ -1190,6 +1195,7 @@ namespace OsEngine.Robots.MyRobots
             _barLength = TimeSpan.Zero;
             _syncProblemDate = DateTime.MinValue;
             _staleWarnDate = DateTime.MinValue;
+            _statusDate = DateTime.MinValue;
             _syncProblemSince = DateTime.MinValue;
             _syncErrorSent = DateTime.MinValue;
             _staleSince.Clear();
@@ -1519,6 +1525,7 @@ namespace OsEngine.Robots.MyRobots
 
             if (string.IsNullOrEmpty(reason))
             {
+                ReportDailyStatus(assets, equity, barTime);
                 return;
             }
 
@@ -2126,16 +2133,7 @@ namespace OsEngine.Robots.MyRobots
 
             if (cash < 0)
             {
-                // Робот считает позиции иначе, чем брокер: либо часть позиций ему не видна,
-                // либо портфель отдаёт не ту величину. Из всех расхождений это самое опасное
-                if (_negativeCashErrorSent == false)
-                {
-                    _negativeCashErrorSent = true;
-
-                    SendExecutionProblem("Перевложение: свободных денег " + Math.Round(cash)
-                        + ". Стоимость известных роботу позиций больше стоимости портфеля - "
-                        + "проверьте, все ли позиции счёта видны роботу");
-                }
+                ReportOverInvested(cash, equity, positionsValue, portfolioValue);
 
                 // на покупки таких денег нет, но в оценке портфеля перевложение учтено
                 cash = 0;
@@ -2147,6 +2145,70 @@ namespace OsEngine.Robots.MyRobots
                 SendNewLogMessage("Перевложение устранено, свободные деньги снова положительные",
                     LogMessageType.System);
             }
+        }
+
+        /// <summary>
+        /// Сообщить о перевложении - но только о настоящем.
+        ///
+        /// cash здесь не деньги со счёта, а разность двух оценок, которые считают разные
+        /// стороны и по разным ценам: portfolioValue брокер даёт по текущему рынку,
+        /// а positionsValue робот считает по закрытию последней свечи. Плюс комиссия -
+        /// она уменьшает стоимость портфеля, но не уменьшает стоимость позиций, потому что
+        /// позиции оценены по рынку, а не по цене покупки. После парковки остатка в денежную
+        /// позицию свободных денег почти не остаётся по замыслу, поэтому любая мелочь
+        /// в третьем знаке переворачивает знак этой разности.
+        ///
+        /// Порог «меньше нуля» ловил именно этот шум: на 100 тыс. приходило сообщение
+        /// о перевложении на 37 рублей, из которых около сорока - накопленная комиссия.
+        /// Ошибка, требующая действий трейдера, должна быть соразмерна сделке, иначе канал
+        /// ошибок перестают читать
+        /// </summary>
+        private void ReportOverInvested(decimal cash, decimal equity, decimal positionsValue,
+            decimal portfolioValue)
+        {
+            // В CashAndRealized проверять нечего: там cash = стоимость портфеля минус
+            // вложенное ПО ЦЕНЕ ВХОДА, и как только позиции уходят ниже входа, разность
+            // становится отрицательной по определению. Это нереализованный убыток, а не
+            // расхождение с брокером, и сравнивать его не с чем: величина вообще не про
+            // свободные деньги. Клампинг в ноль при этом остаётся правильным
+            if (IsFullPortfolioValueMode() == false)
+            {
+                return;
+            }
+
+            decimal limit = equity / 1000m;
+
+            if (limit < _minTradeMoney.ValueDecimal)
+            {
+                limit = _minTradeMoney.ValueDecimal;
+            }
+
+            if (-cash < limit)
+            {
+                return;
+            }
+
+            if (_negativeCashErrorSent)
+            {
+                return;
+            }
+
+            _negativeCashErrorSent = true;
+
+            // деньги брокера - единственная величина, по которой видно, расхождение это
+            // в оценке или в самом составе позиций
+            decimal brokerCash = GetBrokerFreeMoney();
+
+            string broker = brokerCash >= 0
+                ? "У брокера свободных денег " + Math.Round(brokerCash) + ". "
+                : "Денежную позицию коннектор не отдаёт, сверить не с чем. ";
+
+            SendExecutionProblem("Перевложение: робот считает свободными " + Math.Round(cash)
+                + ". Стоимость портфеля " + Math.Round(portfolioValue)
+                + ", известных роботу позиций " + Math.Round(positionsValue) + ". " + broker
+                + "Мелкий минус тут обычное дело - комиссия и оценка позиций по закрытию "
+                + "последней свечи, - но этот больше " + Math.Round(limit)
+                + ": проверьте, все ли позиции счёта видны роботу");
         }
 
         /// <summary>
@@ -5865,6 +5927,90 @@ namespace OsEngine.Robots.MyRobots
             _pendingCashAtPlan = -1;
             _pendingSince = DateTime.MinValue;
             _waitingForSells = false;
+        }
+
+        /// <summary>
+        /// Признак жизни: одна строка в сутки в день, когда робот не нашёл ни одного повода.
+        ///
+        /// Такой день не оставляет в журнале ничего - Process выходит молча, - и по логу
+        /// нельзя отличить работающего робота от вставшего: не пришли свечи, оборвался поток,
+        /// повисло подключение. Оба состояния выглядят одинаково, пустотой.
+        ///
+        /// Пишется только когда повода нет: в остальных случаях в журнале уже есть либо блок
+        /// ребалансировки, либо запись ReportEmptyReason, и дублировать их незачем.
+        /// В тестере не пишется - там пустых дней тысячи, а признак жизни нужен живому счёту
+        /// </summary>
+        private void ReportDailyStatus(List<KorovinAsset> assets, decimal equity, DateTime barTime)
+        {
+            if (StartProgram != StartProgram.IsOsTrader
+                || _statusDate.Date == barTime.Date)
+            {
+                return;
+            }
+
+            _statusDate = barTime;
+
+            int stocks = 0;
+            int tradable = 0;
+
+            for (int i = 0; assets != null && i < assets.Count; i++)
+            {
+                if (assets[i] == null
+                    || assets[i].Type != KorovinAssetType.Stock)
+                {
+                    continue;
+                }
+
+                stocks++;
+
+                if (assets[i].IsTradable)
+                {
+                    tradable++;
+                }
+            }
+
+            SendNewLogMessage("Состояние "
+                + barTime.ToString("dd.MM.yyyy HH:mm", CultureInfo.InvariantCulture)
+                + ". Портфель: " + Math.Round(equity, 0)
+                + ", свободно " + Math.Round(_lastCashRaw, 0)
+                + ". Лестница: " + _ladder.GetLevelName() + " (" + _ladder.Level + ")"
+                + ", загрузка " + Math.Round(_ladder.KApplied, 3)
+                + ", просадка индекса " + Math.Round(_ladder.Drawdown, 1) + "%"
+                + ". Торгуемых бумаг " + tradable + " из " + stocks
+                + ". " + GetNextScheduledText(barTime)
+                + ". Поводов нет", LogMessageType.System);
+        }
+
+        /// <summary>
+        /// Когда ждать плановую. Считается по тем же полям, что и IsScheduledDay,
+        /// но словами - без повторения самой логики расписания
+        /// </summary>
+        private string GetNextScheduledText(DateTime barTime)
+        {
+            if (_schedule.ValueString == "Interval")
+            {
+                if (_state.LastRebalanceDate == DateTime.MinValue)
+                {
+                    return "Плановая: ждёт первой ребалансировки";
+                }
+
+                int left = _intervalDays.ValueInt
+                    - (int)(barTime.Date - _state.LastRebalanceDate.Date).TotalDays;
+
+                if (left < 0)
+                {
+                    left = 0;
+                }
+
+                return "Плановая через " + left + " дн.";
+            }
+
+            if (_schedule.ValueString == "Weekly")
+            {
+                return "Плановая: еженедельно, с " + _scheduleDay.ValueInt + "-го дня недели";
+            }
+
+            return "Плановая: ежемесячно, с " + _scheduleDay.ValueInt + "-го числа";
         }
 
         private void LogDecision(List<KorovinAsset> assets, decimal equity, decimal cash,
