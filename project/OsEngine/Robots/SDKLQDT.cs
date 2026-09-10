@@ -26,6 +26,14 @@ namespace OsEngine.Robots
         [Parameter(500.0, "Max count lots for trade")]
         private StrategyParameterDecimal maxCountForTrade;
 
+        // Reaction to a rejected buy order. The broker can refuse a purchase when the
+        // planned evening variation margin write-off would make the cash balance negative.
+        // In that case we temporary raise the money reserve for the rest of the day.
+        [Parameter(2, 1, 10, 1, "Min money multiplier on order error")]
+        private StrategyParameterDecimal minMoneyErrorMultiplier;
+        [Parameter(16, 1, 1024, 1, "Max min money multiplier")]
+        private StrategyParameterDecimal minMoneyMaxMultiplier;
+
         [Parameter(false)]
         private StrategyParameterBool showErrorMessage;
 
@@ -49,6 +57,9 @@ namespace OsEngine.Robots
 
             // Subscribe to the candle finished event
             _tab.CandleFinishedEvent += _tab_CandleFinishedEvent;
+
+            // Subscribe to the order state event to catch order rejections
+            _tab.OrderUpdateEvent += _tab_OrderUpdateEvent;
 
             // Subscribe to receive events/commands from Telegram
             ServerTelegram.GetServer().TelegramCommandEvent += TelegramCommandHandler;
@@ -145,10 +156,94 @@ namespace OsEngine.Robots
                                   $"Profit for all {profit.ToString("F2")}.\n" +
                                   $"Portfolio full money {fullMoney.ToString("F2")}.\n" +
                                   $"Portfolio varmarge money {unrealizedPnl.ToString("F2")}.\n" +
-                                  $"Portfolio free money {freeMoney.ToString("F2")}.\n"
+                                  $"Portfolio free money {freeMoney.ToString("F2")}.\n" +
+                                  $"Minimum money value {(minMoney.ValueDecimal * _minMoneyMultiplier).ToString("F2")}.\n"
                                   , LogMessageType.User);
             }
         }
+
+        // Temporary money reserve multiplier. It grows on every rejected buy order
+        // and is dropped back to 1 when a new day begins.
+        private decimal _minMoneyMultiplier = 1m;
+        private DateTime _minMoneyMultiplierDay = DateTime.MinValue;
+
+        // Money reserve that must stay untouched on the account right now
+        private decimal GetCurrentMinMoney(DateTime time)
+        {
+            DropMinMoneyMultiplierOnNewDay(time);
+
+            return minMoney.ValueDecimal * _minMoneyMultiplier;
+        }
+
+        // The temporary reserve lives until the end of the day only
+        private void DropMinMoneyMultiplierOnNewDay(DateTime time)
+        {
+            if (_minMoneyMultiplier == 1m)
+                return;
+
+            if (time == DateTime.MinValue
+                || time.Date == _minMoneyMultiplierDay)
+                return;
+
+            _minMoneyMultiplier = 1m;
+            _minMoneyMultiplierDay = DateTime.MinValue;
+
+            SendNewLogMessage($"New day. Minimum money value is back to {minMoney.ValueDecimal}",
+                LogMessageType.System);
+        }
+
+        // Order state event. We are looking for rejected buy orders here.
+        // The broker refuses a purchase when the money left after the planned
+        // variation margin write-off would go negative, so we raise the reserve.
+        private void _tab_OrderUpdateEvent(Order order)
+        {
+            if (order == null
+                || order.State != OrderStateType.Fail
+                || order.Side != Side.Buy)
+                return;
+
+            DateTime time = _tab.TimeServerCurrent;
+
+            if (time == DateTime.MinValue)
+                time = order.TimeCreate;
+
+            DropMinMoneyMultiplierOnNewDay(time);
+
+            decimal errorMultiplier = minMoneyErrorMultiplier.ValueDecimal;
+
+            if (errorMultiplier < 1m)
+                errorMultiplier = 1m;
+
+            decimal maxMultiplier = minMoneyMaxMultiplier.ValueDecimal;
+
+            if (maxMultiplier < 1m)
+                maxMultiplier = 1m;
+
+            decimal newMultiplier = _minMoneyMultiplier * errorMultiplier;
+
+            if (newMultiplier > maxMultiplier)
+                newMultiplier = maxMultiplier;
+
+            if (time != DateTime.MinValue)
+                _minMoneyMultiplierDay = time.Date;
+
+            if (newMultiplier == _minMoneyMultiplier)
+            {
+                if (showErrorMessage.ValueBool)
+                    SendNewLogMessage($"Buy order {order.NumberUser} rejected. " +
+                                  $"Minimum money value is already at its limit " +
+                                  $"{minMoney.ValueDecimal * _minMoneyMultiplier}", LogMessageType.Error);
+                return;
+            }
+
+            _minMoneyMultiplier = newMultiplier;
+            if (showErrorMessage.ValueBool)
+                SendNewLogMessage($"Buy order {order.NumberUser} rejected. " +
+                              $"Minimum money value raised to " +
+                              $"{minMoney.ValueDecimal * _minMoneyMultiplier} until the end of the day",
+                LogMessageType.Error);
+        }
+
         // Logic
         // Candle Finished Event
         private void _tab_CandleFinishedEvent(List<Candle> candles)
@@ -193,14 +288,15 @@ namespace OsEngine.Robots
                     fullMoney = positionOnBoard[i].ValueCurrent;
             }
 
-            fullMoney -= minMoney;
+            fullMoney -= GetCurrentMinMoney(_tab.TimeServerCurrent);
             if (unrealizedPnl > 0m)
                 fullMoney -= unrealizedPnl;
             lqdtMoney = lqdtCount * _tab.PriceBestBid;
 
             decimal qty = (fullMoney > 0 ? (fullMoney / _tab.PriceBestAsk) : (-fullMoney / _tab.PriceBestBid)) / _tab.Security.Lot;
             qty = Math.Round(qty, _tab.Security.DecimalsVolume, MidpointRounding.ToNegativeInfinity);
-            if (Math.Abs(fullMoney) < minMoneyTrade)
+            // Не торгуем если объем меньше минимального, или если увеличение резерва денег привело к отрицательному значению
+            if (Math.Abs(fullMoney) < minMoneyTrade || (fullMoney < 0m && _minMoneyMultiplier > 1m))
                 return;
 
             if (fullMoney < 0 && lqdtMoney < -fullMoney)
