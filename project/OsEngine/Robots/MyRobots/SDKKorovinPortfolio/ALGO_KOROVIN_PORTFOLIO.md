@@ -506,23 +506,37 @@ volume_i = floor( money_i / (P_i * Lot_i) )   с учётом Security.DecimalsV
 
 Все сделки — **рыночными заявками**.
 
-Исполнение **двухфазное**, потому что покупать можно только на деньги, которые уже получены от
-продаж. Параметр `Exec split`:
+Исполнение **двухфазное только при необходимости**: покупать можно лишь на деньги, которые
+уже получены от продаж, — но если продажи не требовались, ждать нечего.
 
-* **`NextBar` (по умолчанию)** — фаза продаж выполняется на свече `T`, фаза покупок на свече `T+1`
-  (при часовом ТФ — через час, в тот же торговый день). Работает одинаково в тестере и в реале:
-  к моменту покупок деньги от продаж зачислены, а тестер уже отработал сделки продажи.
-* **`SameBar`** — всё в одном событии, с паузой `Exec delay sec` (по умолчанию 5 сек.) между
-  фазами. Только для реальной торговли и только если брокер отдаёт деньги мгновенно.
-  В тестере параметр игнорируется, применяется `NextBar`.
+* **Денег хватает** — покупки уходят в том же вызове, сразу после решения.
+* **Нужны продажи** — покупки ждут не свечу, а зачисления выручки. Готовность определяется
+  двумя условиями: все заявки на продажу в терминальном состоянии (`Done`, `Fail`, `Cancel`,
+  `LostAfterActive`) **и** денежная позиция брокера выросла на реально вырученную сумму
+  `Σ VolumeExecute × PriceReal × Lot` (допуск 1%; объёмы разных инструментов не складываются).
+  Продажи акций и денежная нога ждут раздельно — как в `VerifyPreviousSells`. Проверяется
+  и торговое окно по текущему времени сервера. Деньги берутся из денежной позиции портфеля (`rub`),
+  а не из вычисленного `cash`: последний равен `ValueCurrent − стоимость позиций`, а
+  `ValueCurrent` от продажи не меняется, и такая проверка лишь повторяла бы первое условие.
+  Нет денежной позиции — проверка по деньгам пропускается. Точка отсчёта снимается до
+  отправки продаж. Проверку запускают события коннектора `ServerTimeChangeEvent`
+  и `PortfolioOnExchangeChangedEvent` (лок берётся через `Monitor.TryEnter`, без ожидания);
+  пауз и таймеров нет.
+
+Страховка: если события не пришли, план исполняется на следующей свече, а затем отменяется
+по `Pending buys ttl bars`. Если продажи отработали, но не исполнились ни по одному
+инструменту, план отменяется сразу.
+
+В тестере вторая ветка всё равно занимает свечу: `TesterServer` исполняет рыночную заявку
+только открытием следующей свечи, раньше исполниться нечему.
 
 Порядок:
 
 1. Свеча `T`: рассчитать `E`, уровень `L`, целевые веса, дельты, отфильтровать по полосам.
 2. **Продажи** акций и золота (перевесы).
 3. Продажа LQDT на недостающую сумму.
-4. Сохранить план покупок в состояние (`pendingBuys`), пометить фазу.
-5. Свеча `T+1`: **покупки** акций и золота, в порядке от самого недовешенного,
+4. Если продаж не было — покупки сразу; иначе сохранить план в состояние (`pendingBuys`).
+5. По готовности денег: **покупки** акций и золота, в порядке от самого недовешенного,
    с пересчётом объёмов по фактически доступным деньгам и текущим ценам.
 6. Остаток свободных денег сверх `Cash min %` — в LQDT.
 7. Запись состояния и подробный лог решения.
@@ -711,8 +725,6 @@ volume_i = floor( money_i / (P_i * Lot_i) )   с учётом Security.DecimalsV
 | `Min trade money` | 5000 |
 | `Trade to` | Target (Target / BandEdge) |
 | `Cash inflow trigger percent` | 1 |
-| `Exec split` | NextBar (NextBar / SameBar) |
-| `Exec delay sec` | 5 (только для `SameBar`) |
 | `Pending buys ttl bars` | 3 |
 | `Stale bars limit` | 5 (в барах) |
 | `Dividend tax percent` | 13 |
@@ -775,14 +787,28 @@ OnCandleFinished(bar):
     SellLqdtIfNeeded()
 
     _lastRebalanceDate = today
-    if Exec split == NextBar:
-        _pendingBuys = orders.buys; _pendingBuysBar = bar; _pendingReason = reason
-        SaveState(); return                    // покупки — на следующей свече
-    else:
-        Wait(Exec delay sec)
+    if waitOrders.IsEmpty:                     // продаж не было, деньги на счёте
         ExecuteBuys(orders); ParkRestInLqdt()
-        if reason == Scheduled: ClearPendingDiv()
-        SaveState(); LogDecision(...)
+        SaveState(); LogDecision(...); return
+
+    _pendingBuys = orders.buys; _pendingBuysBar = bar; _pendingReason = reason
+    _pendingWaitOrders = waitOrders; SaveState()
+    TryExecutePendingBuys()                    // и затем по событиям коннектора
+
+// вызывается из ServerTimeChangeEvent / PortfolioOnExchangeChangedEvent
+TryExecutePendingBuys():
+    if not AllFinished(_pendingWaitOrders): return
+    if ExecutedVolume == 0: ClearPendingBuys(); return
+    stockMoney = ExecutedMoney(_pendingStockOrders)
+    arrived    = stockMoney + ExecutedMoney(_pendingLqdtOrders)
+    if arrived <= 0: ClearPendingBuys(); return          // ничего не продалось
+    if _pendingStockOrders and stockMoney <= 0:
+        ClearPendingBuys(); return                       // акции не продались, будет откат
+
+    brokerCash = BrokerFreeMoney()             // денежная позиция rub, либо -1
+    if brokerCash >= 0 and _brokerCashAtPlan >= 0:
+        if brokerCash + arrived/100 < _brokerCashAtPlan + arrived: return  // не зачислено
+    ExecuteBuys(_pendingBuys); ParkRestInLqdt(); ClearPendingBuys()
 ```
 
 ---
