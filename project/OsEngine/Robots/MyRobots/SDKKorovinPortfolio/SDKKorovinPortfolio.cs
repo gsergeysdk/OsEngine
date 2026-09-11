@@ -117,6 +117,7 @@ namespace OsEngine.Robots.MyRobots
         private StrategyParameterInt _syncToleranceBars;
         private StrategyParameterDecimal _dividendTaxPercent;
         private StrategyParameterInt _dividendHoldDays;
+        private StrategyParameterInt _dividendPayoutLagDays;
 
         private StrategyParameterString _dividendGapNeutral;
         private StrategyParameterString _depthCheck;
@@ -336,6 +337,11 @@ namespace OsEngine.Robots.MyRobots
         private DateTime _staleWarnDate = DateTime.MinValue;
 
         /// <summary>
+        /// Когда последний раз сообщали, что свободные деньги некуда разместить
+        /// </summary>
+        private DateTime _parkProblemDate = DateTime.MinValue;
+
+        /// <summary>
         /// За какой день уже написана строка состояния. Нужен только для throttling
         /// </summary>
         private DateTime _statusDate = DateTime.MinValue;
@@ -515,6 +521,7 @@ namespace OsEngine.Robots.MyRobots
             _syncToleranceBars = CreateParameter("Sync tolerance bars", 3, 0, 20, 1, "Execution");
             _dividendTaxPercent = CreateParameter("Dividend tax percent", 13m, 0m, 50m, 1m, "Execution");
             _dividendHoldDays = CreateParameter("Dividend hold days", 90, 10, 400, 10, "Execution");
+            _dividendPayoutLagDays = CreateParameter("Dividend payout lag days", 14, 0, 60, 1, "Execution");
             _dividendGapNeutral = CreateParameter("Dividend gap neutral", "On",
                 new[] { "On", "Off" }, "Execution");
             _depthCheck = CreateParameter("Depth check", "On", new[] { "On", "Off" }, "Execution");
@@ -1195,6 +1202,7 @@ namespace OsEngine.Robots.MyRobots
             _barLength = TimeSpan.Zero;
             _syncProblemDate = DateTime.MinValue;
             _staleWarnDate = DateTime.MinValue;
+            _parkProblemDate = DateTime.MinValue;
             _statusDate = DateTime.MinValue;
             _syncProblemSince = DateTime.MinValue;
             _syncErrorSent = DateTime.MinValue;
@@ -3064,6 +3072,7 @@ namespace OsEngine.Robots.MyRobots
                 }
 
                 decimal money = 0;
+                decimal paid = 0;
 
                 for (int p = 0; p < payments.Count; p++)
                 {
@@ -3076,8 +3085,19 @@ namespace OsEngine.Robots.MyRobots
                         continue;
                     }
 
-                    money += payments[p].Value * volumeAtRecord * asset.Lot
+                    decimal net = payments[p].Value * volumeAtRecord * asset.Lot
                         * (100m - _dividendTaxPercent.ValueDecimal) / 100m;
+
+                    money += net;
+
+                    // деньги приходят не в день отсечки. Точной даты выплаты в базе нет -
+                    // Wiki отдаёт только registry_close_date, - поэтому срок задан параметром.
+                    // Дни календарные, как и в тестере: там ExpectedPaymentDate считается
+                    // как exDivDate.AddDays(DividendsPaymentDelayDays)
+                    if (payments[p].Key.Date.AddDays(_dividendPayoutLagDays.ValueInt) <= barTime.Date)
+                    {
+                        paid += net;
+                    }
                 }
 
                 if (money <= 0)
@@ -3099,6 +3119,7 @@ namespace OsEngine.Robots.MyRobots
                 }
 
                 asset.PendingDividend = money;
+                asset.PendingDividendPaid = paid;
 
                 // видно, что нейтрализация действительно работает и на какую сумму
                 decimal known;
@@ -3365,9 +3386,13 @@ namespace OsEngine.Robots.MyRobots
 
             if (gapNeutral)
             {
+                // вычитается только то, что уже зачислено: приход дивидендов не должен
+                // выглядеть пополнением счёта. А вот до выплаты денег на счёте нет, и вычитать
+                // их значило бы занижать свободные деньги на все недели между отсечкой
+                // и зачислением - вместе с настоящим пополнением, если оно придётся на это окно
                 for (int i = 0; i < assets.Count; i++)
                 {
-                    effectiveCash -= assets[i].PendingDividend;
+                    effectiveCash -= assets[i].PendingDividendPaid;
                 }
             }
 
@@ -3978,6 +4003,8 @@ namespace OsEngine.Robots.MyRobots
                     ReportEmptyReason(reason, barTime);
                 }
 
+                ParkFreeCashWhenIdle(assets);
+
                 return;
             }
 
@@ -3985,7 +4012,7 @@ namespace OsEngine.Robots.MyRobots
 
             for (int i = 0; i < buys.Count; i++)
             {
-                needBuy += GetTradeMoney(buys[i]);
+                needBuy += GetAchievableBuyMoney(buys[i], GetTradeMoney(buys[i]));
             }
 
             // из денежной позиции доступно только то, что выше неснижаемого остатка
@@ -4011,7 +4038,7 @@ namespace OsEngine.Robots.MyRobots
 
                 for (int i = 0; i < buys.Count; i++)
                 {
-                    needBuy += buys[i].TargetMoney;
+                    needBuy += GetAchievableBuyMoney(buys[i], buys[i].TargetMoney);
 
                     if (buys[i].Volume > 0)
                     {
@@ -4021,7 +4048,7 @@ namespace OsEngine.Robots.MyRobots
 
                 for (int i = 0; i < sells.Count; i++)
                 {
-                    needBuy += sells[i].TargetMoney;
+                    needBuy += GetAchievableBuyMoney(sells[i], sells[i].TargetMoney);
 
                     if (sells[i].Volume > 0)
                     {
@@ -4119,6 +4146,8 @@ namespace OsEngine.Robots.MyRobots
                 {
                     ReportEmptyReason(reason, barTime);
                 }
+
+                ParkFreeCashWhenIdle(assets);
 
                 return;
             }
@@ -4224,6 +4253,11 @@ namespace OsEngine.Robots.MyRobots
                     money = buys[i].TargetMoney;
                 }
 
+                // та же величина, по которой считался needBuy: иначе план окажется больше
+                // денег, поднятых под него, сработает пропорциональное ужатие, и покупки
+                // урежутся ещё раз - уже без нужды
+                money = GetAchievableBuyMoney(buys[i], money);
+
                 if (money <= 0)
                 {
                     continue;
@@ -4248,7 +4282,8 @@ namespace OsEngine.Robots.MyRobots
 
                     if (plan.ContainsKey(sellsToDo[i].Name) == false)
                     {
-                        plan.Add(sellsToDo[i].Name, sellsToDo[i].TargetMoney);
+                        plan.Add(sellsToDo[i].Name,
+                            GetAchievableBuyMoney(sellsToDo[i], sellsToDo[i].TargetMoney));
                     }
                 }
             }
@@ -4950,13 +4985,16 @@ namespace OsEngine.Robots.MyRobots
             return spent;
         }
 
-        private void ParkRestInLqdt(List<KorovinAsset> assets, decimal alreadySpent)
+        /// <summary>
+        /// Разместить свободные деньги в денежной позиции. Возвращает размещённую сумму
+        /// </summary>
+        private decimal ParkRestInLqdt(List<KorovinAsset> assets, decimal alreadySpent)
         {
             KorovinAsset lqdt = GetAsset(assets, KorovinAssetType.Lqdt);
 
             if (lqdt == null)
             {
-                return;
+                return 0;
             }
 
             decimal equity;
@@ -4965,34 +5003,72 @@ namespace OsEngine.Robots.MyRobots
             EvaluatePortfolio(assets, out equity, out cash);
 
             // заявки этого бара портфель ещё не видит, их деньги уже расписаны
+            decimal spentReserve = cash * _cashBufferPercent.ValueDecimal / 100m;
+
             cash = cash - alreadySpent;
 
-            // парковка идёт последней и забирает весь остаток, поэтому без запаса именно
-            // она и упиралась бы в недостаток средств
-            cash = ApplyCashBuffer(cash);
+            // Запас берётся от ВСЕГО кэша, а не от остатка. Парковка идёт последней
+            // и забирает всё, что не расписано, а ошибка в оценке расписанного
+            // пропорциональна обороту: комиссия плюс разница между ценой, по которой считался
+            // объём, и ценой сделки. Остаток же после округления по лотам может быть сколь
+            // угодно мал - процент от него такую ошибку не покрывает, и заявка на парковку
+            // отклонялась брокером по недостатку средств
+            cash = cash - spentReserve;
 
             if (cash < _minTradeMoney.ValueDecimal)
             {
-                return;
+                return 0;
             }
 
-            // проверка стоит после подсчёта денег: сообщать не о чем, пока парковать нечего
+            // проверка стоит после подсчёта денег: сообщать не о чем, пока парковать нечего.
+            // Throttling по дню нужен потому, что парковка вызывается и с холостых
+            // ребалансировок, а те пересчитываются на каждом баре
             if (lqdt.IsTradable == false)
             {
-                SendExecutionProblem("Свободные деньги " + Math.Round(cash)
-                    + " не размещены: денежная позиция не торгуется. Останутся на счёте "
-                    + "до следующей ребалансировки");
-                return;
+                if (_parkProblemDate.Date != _lastBarTime.Date)
+                {
+                    _parkProblemDate = _lastBarTime;
+
+                    SendExecutionProblem("Свободные деньги " + Math.Round(cash)
+                        + " не размещены: денежная позиция не торгуется. Останутся на счёте "
+                        + "до следующей ребалансировки");
+                }
+
+                return 0;
             }
 
             decimal volume = CalculateVolume(lqdt, cash, GetExecutionPrice(lqdt, true));
 
             if (volume <= 0)
             {
-                return;
+                return 0;
             }
 
             OpenOrAddPosition(lqdt, volume);
+
+            return volume * GetExecutionPrice(lqdt, true) * lqdt.Lot;
+        }
+
+        /// <summary>
+        /// Разместить свободные деньги, когда торговать нечем.
+        ///
+        /// Парковка живёт внутри плана покупок, а план строится только из бумаг, вышедших
+        /// за полосу. Пока все веса внутри полосы, ExecuteRebalance выходит раньше - и деньги,
+        /// пришедшие помимо сделок, лежат на счёте без дела. А приходят они регулярно:
+        /// выплаченные дивиденды, пополнение счёта, недобор по лотности. На дивидендном
+        /// сезоне по десятку бумаг это уже заметная неработающая сумма
+        /// </summary>
+        private void ParkFreeCashWhenIdle(List<KorovinAsset> assets)
+        {
+            decimal parked = ParkRestInLqdt(assets, 0);
+
+            if (parked <= 0)
+            {
+                return;
+            }
+
+            SendNewLogMessage("Торговать нечем, но на счёте свободно " + Math.Round(parked)
+                + ": деньги размещены в денежной позиции", LogMessageType.System);
         }
 
         /// <summary>
@@ -5370,6 +5446,38 @@ namespace OsEngine.Robots.MyRobots
             }
 
             return step * price * asset.Lot;
+        }
+
+        /// <summary>
+        /// Сколько из этой суммы реально уйдёт в бумагу.
+        ///
+        /// Объём округляется вниз до целого лота, поэтому остаток от деления потратить
+        /// нельзя - он просто не превращается в заявку. Пока needBuy считался по полной
+        /// сумме, робот поднимал под покупки больше денег, чем мог потратить, и разница
+        /// тем же баром возвращалась обратно в денежную позицию: продали LQDT и тут же
+        /// купили LQDT, две комиссии и спред на ровном месте.
+        ///
+        /// Величина потерь не мелкая. На боевом счёте план на 136 979 при лотах по 2-5 тыс.
+        /// давал реально исполнимых 124 448 - лишние 12 379 были проданы из LQDT и куплены
+        /// обратно. Больше всего теряют бумаги с дорогим лотом относительно своей доли:
+        /// при цели 9 500 и лоте 4 937 покупается один лот, а 4 563 остаются неизрасходованными
+        /// </summary>
+        private decimal GetAchievableBuyMoney(KorovinAsset asset, decimal money)
+        {
+            if (money <= 0)
+            {
+                return 0;
+            }
+
+            decimal minBuyMoney = GetMinBuyMoney(asset);
+
+            if (minBuyMoney <= 0)
+            {
+                // цены нет - угадывать нечем, оставляем как есть
+                return money;
+            }
+
+            return Math.Floor(money / minBuyMoney) * minBuyMoney;
         }
 
         /// <summary>
@@ -6408,7 +6516,22 @@ namespace OsEngine.Robots.MyRobots
 
         public decimal Band;
 
+        /// <summary>
+        /// Дивиденд, начисленный по прошедшим отсечкам, после налога. Нужен, чтобы гэп
+        /// в цене не выглядел недовесом: бумага подешевела ровно на эту сумму
+        /// </summary>
         public decimal PendingDividend;
+
+        /// <summary>
+        /// Та часть PendingDividend, которая уже должна быть зачислена на счёт -
+        /// с даты отсечки прошло больше, чем Dividend payout lag days.
+        ///
+        /// Отдельно от PendingDividend, потому что эти две величины нужны в разных местах
+        /// и в разные моменты. Гэп в цене существует с самой отсечки, а деньги приходят
+        /// через недели, и вычитать из кэша то, чего на счёте ещё нет, значит занижать
+        /// свободные деньги на всё это время
+        /// </summary>
+        public decimal PendingDividendPaid;
 
         public bool IsFrozen;
 
