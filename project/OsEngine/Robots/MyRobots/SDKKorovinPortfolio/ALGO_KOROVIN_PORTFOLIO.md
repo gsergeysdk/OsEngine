@@ -731,6 +731,7 @@ volume_i = floor( money_i / (P_i * Lot_i) )   с учётом Security.DecimalsV
 | `Dividend gap neutral` | On (On / Off) |
 | `Dividend hold days` | 90 |
 | `Dividend payout lag days` | 14 (в тестере 7 — столько ждёт `TesterServer`) |
+| `Money position code` | rub (пусто — считать деньги вычитанием позиций) |
 | `Freeze near record date` | Off |
 | `Freeze days` | 5 |
 
