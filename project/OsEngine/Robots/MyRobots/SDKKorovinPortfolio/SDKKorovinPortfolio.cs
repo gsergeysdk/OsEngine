@@ -123,6 +123,7 @@ namespace OsEngine.Robots.MyRobots
         private StrategyParameterString _depthCheck;
         private StrategyParameterDecimal _maxSlippagePercent;
         private StrategyParameterDecimal _cashBufferPercent;
+        private StrategyParameterString _moneyPositionCode;
         private StrategyParameterString _freezeNearRecordDate;
         private StrategyParameterInt _freezeDays;
 
@@ -342,6 +343,11 @@ namespace OsEngine.Robots.MyRobots
         private DateTime _parkProblemDate = DateTime.MinValue;
 
         /// <summary>
+        /// Когда последний раз сообщали о расхождении с денежной позицией брокера
+        /// </summary>
+        private DateTime _brokerGapDate = DateTime.MinValue;
+
+        /// <summary>
         /// За какой день уже написана строка состояния. Нужен только для throttling
         /// </summary>
         private DateTime _statusDate = DateTime.MinValue;
@@ -367,6 +373,12 @@ namespace OsEngine.Robots.MyRobots
         private decimal _lastPositionsValue;
 
         private decimal _lastCashRaw;
+
+        /// <summary>
+        /// Свободные деньги, посчитанные вычитанием позиций из стоимости портфеля. Нужны
+        /// только для журнала и для сверки: в решениях используются деньги брокера
+        /// </summary>
+        private decimal _lastCashComputed;
 
         private decimal _lastReserveUp;
 
@@ -527,6 +539,7 @@ namespace OsEngine.Robots.MyRobots
             _depthCheck = CreateParameter("Depth check", "On", new[] { "On", "Off" }, "Execution");
             _maxSlippagePercent = CreateParameter("Max slippage percent", 0.3m, 0.01m, 5m, 0.05m, "Execution");
             _cashBufferPercent = CreateParameter("Cash buffer percent", 0.3m, 0m, 5m, 0.1m, "Execution");
+            _moneyPositionCode = CreateParameter("Money position code", "rub", "Execution");
             _freezeNearRecordDate = CreateParameter("Freeze near record date", "Off",
                 new[] { "Off", "On" }, "Execution");
             _freezeDays = CreateParameter("Freeze days", 5, 1, 60, 1, "Execution");
@@ -1203,6 +1216,7 @@ namespace OsEngine.Robots.MyRobots
             _syncProblemDate = DateTime.MinValue;
             _staleWarnDate = DateTime.MinValue;
             _parkProblemDate = DateTime.MinValue;
+            _brokerGapDate = DateTime.MinValue;
             _statusDate = DateTime.MinValue;
             _syncProblemSince = DateTime.MinValue;
             _syncErrorSent = DateTime.MinValue;
@@ -2130,9 +2144,35 @@ namespace OsEngine.Robots.MyRobots
             {
                 equity = portfolioValue;
                 cash = portfolioValue - positionsValue;
+
+                // Свободные деньги берём у брокера, а не вычисляем.
+                //
+                // Вычитание позиций из стоимости портфеля мешает две несовместимые величины:
+                // portfolioValue живой, а позиции оценены по закрытию последней свечи. Любая
+                // ошибка оценки позиций попадает в «деньги» один к одному - и, что хуже,
+                // исчезает ровно в тот момент, когда позицию продают. Именно так план покупок
+                // трижды оказывался больше денег: недооценённая на 0,8% денежная позиция
+                // добавляла к кэшу 273 рубля, план строился с их учётом, а продажа этой же
+                // позиции их и уничтожала. Механизм самоподрывающийся: чем больше финансируешь
+                // план продажей LQDT, тем больше исчезает денег, под которые он расписан.
+                //
+                // equity остаётся вычисленной: там нужна именно полная стоимость счёта
+                _lastCashComputed = cash;
+
+                decimal brokerCash = GetBrokerFreeMoney();
+
+                if (brokerCash >= 0)
+                {
+                    ReportBrokerMoneyGap(cash, equity);
+
+                    cash = brokerCash;
+                }
             }
             else
             {
+                // CashAndRealized - осознанный бухгалтерский режим: там cash означает
+                // «деньги плюс реализованное», а не свободный остаток счёта, и подменять
+                // его настоящими деньгами нельзя - вместе с ним поменяется смысл equity
                 cash = portfolioValue - investedAtCost;
                 equity = cash + positionsValue;
             }
@@ -2447,14 +2487,28 @@ namespace OsEngine.Robots.MyRobots
         ///
         /// Настоящие свободные деньги лежат отдельной денежной позицией портфеля. У TInvest
         /// это позиция валюты rub, и в неё уже заложены заблокированные средства
-        /// (valuePortfolio - blockRub). Если такой позиции нет - у коннектора её может
-        /// не быть вовсе, - возвращаем -1, и проверка по деньгам просто пропускается:
-        /// блокировать из-за отсутствия данных план нельзя
+        /// (valuePortfolio - blockRub).
+        ///
+        /// Код позиции задан параметром Money position code, а не вписан в код: у разных
+        /// коннекторов он свой, и прятать такую привязку внутри логики нельзя. Пустое
+        /// значение выключает механизм - тогда возвращается -1 и робот считает деньги
+        /// по-старому, вычитанием позиций из стоимости портфеля
         /// </summary>
         private decimal GetBrokerFreeMoney()
         {
             try
             {
+                string code = _moneyPositionCode == null
+                    ? ""
+                    : _moneyPositionCode.ValueString;
+
+                if (string.IsNullOrWhiteSpace(code))
+                {
+                    return -1;
+                }
+
+                code = code.Trim();
+
                 Portfolio portfolio = GetTradePortfolio();
 
                 if (portfolio == null)
@@ -2477,7 +2531,7 @@ namespace OsEngine.Robots.MyRobots
                         continue;
                     }
 
-                    if (poses[i].SecurityNameCode.Equals("rub",
+                    if (poses[i].SecurityNameCode.Equals(code,
                         StringComparison.OrdinalIgnoreCase))
                     {
                         return poses[i].ValueCurrent;
@@ -4926,6 +4980,8 @@ namespace OsEngine.Robots.MyRobots
                 planSum += moneyList[i];
             }
 
+            // cash здесь - уже деньги брокера: подмена сделана в EvaluatePortfolio,
+            // сверка с вычисленной оценкой тоже
             decimal availableCash = cash;
             decimal spent = 0;
 
@@ -4936,32 +4992,32 @@ namespace OsEngine.Robots.MyRobots
                 && planSum > 0)
             {
                 // денег меньше, чем расписано: обычно продажи ушли не полным объёмом
-                // или расчёты ещё не пришли. Покупки ужимаются пропорционально.
+                // или расчёты ещё не пришли.
                 //
                 // Сообщение привязано к полному остатку, а не к остатку за вычетом запаса:
                 // ужатие на сам запас - штатная работа, а не нехватка денег, и сообщать
                 // о нём каждую ребалансировку значило бы залить канал ошибок
                 SendExecutionProblem("Денег меньше плана покупок: нужно "
                     + Math.Round(planSum) + ", доступно " + Math.Round(availableCash)
-                    + ". Покупки ужаты пропорционально, остаток добирается следующей ребалансировкой");
+                    + GetBrokerMoneyText()
+                    + ". План урезан целыми лотами, остаток добирается следующей ребалансировкой");
             }
+
+            TrimPlanByLots(targets, moneyList, cashForPlan);
 
             for (int i = 0; i < targets.Count; i++)
             {
                 decimal money = moneyList[i];
-
-                if (planSum > cashForPlan
-                    && planSum > 0)
-                {
-                    money = money * cashForPlan / planSum;
-                }
 
                 if (money < _minTradeMoney.ValueDecimal)
                 {
                     continue;
                 }
 
-                decimal buyPrice = GetExecutionPrice(targets[i], true);
+                // и объём, и учёт потраченного считаются по цене заявки: именно эту сумму
+                // брокер заблокирует, а исполнится заявка дешевле - разница вернётся
+                // в свободные деньги и уйдёт в парковку следующей ребалансировкой
+                decimal buyPrice = GetOrderPrice(targets[i], true);
 
                 decimal volume = CalculateVolume(targets[i], money, buyPrice);
 
@@ -4983,6 +5039,79 @@ namespace OsEngine.Robots.MyRobots
             }
 
             return spent;
+        }
+
+        /// <summary>
+        /// Уложить план покупок в доступные деньги, убирая по одному лоту.
+        ///
+        /// Раньше при нехватке денег план ужимался пропорционально - каждая сумма умножалась
+        /// на одну и ту же долю. Для плана, выровненного по лотам, это худшее из возможных
+        /// решений: каждая сумма и так стоит ровно на границе целого лота, и любое, даже
+        /// ничтожное, уменьшение сбрасывает её на лот вниз. Сразу по всем бумагам.
+        ///
+        /// На боевом счёте нехватка была 302 рубля при плане 187 000 - это 0,16%. Пропорция
+        /// в 0,998 уронила по одному лоту у всех тринадцати бумаг и стоила 26 000, то есть
+        /// в 86 раз больше самой нехватки. Недоизрасходованные деньги ушли обратно в LQDT,
+        /// откуда только что были подняты.
+        ///
+        /// Убираем лоты по одному, начиная с самого дешёвого. Дешёвый лот - это самая мелкая
+        /// доступная ступень, поэтому нехватка закрывается с минимальным перебором: те же
+        /// 302 рубля снимаются с золота, у которого лот стоит около трёх рублей
+        /// </summary>
+        private void TrimPlanByLots(List<KorovinAsset> targets, List<decimal> moneyList,
+            decimal cashForPlan)
+        {
+            decimal sum = 0;
+
+            for (int i = 0; i < moneyList.Count; i++)
+            {
+                sum += moneyList[i];
+            }
+
+            if (sum <= cashForPlan)
+            {
+                return;
+            }
+
+            // стоимость лота считается один раз: внутри цикла она не меняется, а обращение
+            // к стакану на каждом шаге стоило бы дорого
+            List<decimal> lotMoney = new List<decimal>();
+
+            for (int i = 0; i < targets.Count; i++)
+            {
+                lotMoney.Add(GetMinBuyMoney(targets[i]));
+            }
+
+            // потолок шагов - страховка от зацикливания на неожиданных данных, а не рабочее
+            // ограничение: обычная нехватка закрывается единицами шагов
+            for (int step = 0; step < 100000 && sum > cashForPlan; step++)
+            {
+                int best = -1;
+
+                for (int i = 0; i < targets.Count; i++)
+                {
+                    if (lotMoney[i] <= 0
+                        || moneyList[i] < lotMoney[i])
+                    {
+                        continue;
+                    }
+
+                    if (best == -1
+                        || lotMoney[i] < lotMoney[best])
+                    {
+                        best = i;
+                    }
+                }
+
+                if (best == -1)
+                {
+                    // убирать больше нечего: по всем бумагам меньше лота
+                    break;
+                }
+
+                moneyList[best] = moneyList[best] - lotMoney[best];
+                sum = sum - lotMoney[best];
+            }
         }
 
         /// <summary>
@@ -5037,7 +5166,9 @@ namespace OsEngine.Robots.MyRobots
                 return 0;
             }
 
-            decimal volume = CalculateVolume(lqdt, cash, GetExecutionPrice(lqdt, true));
+            decimal parkPrice = GetOrderPrice(lqdt, true);
+
+            decimal volume = CalculateVolume(lqdt, cash, parkPrice);
 
             if (volume <= 0)
             {
@@ -5046,7 +5177,7 @@ namespace OsEngine.Robots.MyRobots
 
             OpenOrAddPosition(lqdt, volume);
 
-            return volume * GetExecutionPrice(lqdt, true) * lqdt.Lot;
+            return volume * parkPrice * lqdt.Lot;
         }
 
         /// <summary>
@@ -5417,7 +5548,9 @@ namespace OsEngine.Robots.MyRobots
                 return 0;
             }
 
-            decimal price = GetExecutionPrice(asset, true);
+            // цена заявки, а не исполнения: лот считается доступным только если денег хватает
+            // на ту сумму, которую брокер заблокирует
+            decimal price = GetOrderPrice(asset, true);
 
             if (price <= 0)
             {
@@ -5446,6 +5579,113 @@ namespace OsEngine.Robots.MyRobots
             }
 
             return step * price * asset.Lot;
+        }
+
+        /// <summary>
+        /// Цена, которую понесёт сама заявка - не та, по которой она исполнится.
+        ///
+        /// BotTabSimple.BuyAtMarket в реальной торговле прибавляет к лучшему аску сорок шагов
+        /// цены, SellAtMarket столько же вычитает из бида. Это запас на проскальзывание,
+        /// чтобы рыночная заявка гарантированно нашла контрагента. Исполняется она всё равно
+        /// по рынку, но брокер блокирует деньги по цене заявки - и вот эту цену надо брать,
+        /// когда считаешь, на что хватает денег.
+        ///
+        /// Величина не копеечная: у LQDT шаг 0,0001 при цене 2,08, значит сорок шагов - это
+        /// 0,19% суммы. На заявке в 58 тысяч - 111 рублей. Именно из-за них парковка остатка,
+        /// которая забирает всё до копейки, получала отказ по недостатку средств.
+        ///
+        /// В тестере и в эмуляторе надбавки нет, поэтому и здесь её нет
+        /// </summary>
+        private decimal GetOrderPrice(KorovinAsset asset, bool isBuy)
+        {
+            decimal price = GetExecutionPrice(asset, isBuy);
+
+            if (price <= 0
+                || StartProgram != StartProgram.IsOsTrader
+                || asset.Tab == null
+                || asset.Tab.Security == null
+                || asset.Tab.Connector == null
+                || asset.Tab.Connector.EmulatorIsOn)
+            {
+                return price;
+            }
+
+            decimal shift = asset.Tab.Security.PriceStep * 40m;
+
+            if (shift <= 0)
+            {
+                return price;
+            }
+
+            decimal result = isBuy ? price + shift : price - shift;
+
+            return result > 0 ? result : price;
+        }
+
+        /// <summary>
+        /// Свободные деньги брокера для журнала. Пишутся рядом с вычисленным кэшем: пока
+        /// в логе была только вычисленная величина, отказ брокера по недостатку средств
+        /// нечем было объяснить - обе стороны расхождения не видны одновременно
+        /// </summary>
+        private string GetBrokerMoneyText()
+        {
+            decimal brokerCash = GetBrokerFreeMoney();
+
+            if (brokerCash < 0)
+            {
+                return "";
+            }
+
+            // когда деньги уже взяты у брокера, полезна вторая оценка - вычисленная:
+            // по расхождению видно, насколько разошлись цены позиций с рынком
+            if (IsFullPortfolioValueMode())
+            {
+                return " (расчётно " + Math.Round(_lastCashComputed, 0) + ")";
+            }
+
+            return " (у брокера " + Math.Round(brokerCash, 0) + ")";
+        }
+
+        /// <summary>
+        /// Сказать раз в день, что брокер видит меньше свободных денег, чем робот насчитал.
+        ///
+        /// Мелкое расхождение штатно - комиссия и оценка позиций по закрытию свечи, - а вот
+        /// крупное означает, что расчёт кэша разошёлся с действительностью, и это надо чинить,
+        /// а не переживать молча.
+        ///
+        /// На заявки не влияет: привязка к имени валюты в портфеле хрупкая, и в пути принятия
+        /// решения ей не место. Это диагностика - там неверное или отсутствующее имя ничего
+        /// не ломает, а верное сразу показывает, какая из двух оценок врёт
+        /// </summary>
+        private void ReportBrokerMoneyGap(decimal cash, decimal equity)
+        {
+            decimal brokerCash = GetBrokerFreeMoney();
+
+            if (brokerCash < 0)
+            {
+                return;
+            }
+
+            decimal limit = equity / 1000m;
+
+            if (limit < _minTradeMoney.ValueDecimal)
+            {
+                limit = _minTradeMoney.ValueDecimal;
+            }
+
+            if (cash - brokerCash < limit
+                || _brokerGapDate.Date == _lastBarTime.Date)
+            {
+                return;
+            }
+
+            _brokerGapDate = _lastBarTime;
+
+            SendExecutionProblem("Свободных денег у брокера " + Math.Round(brokerCash)
+                + ", робот насчитал " + Math.Round(cash) + ". Расхождение "
+                + Math.Round(cash - brokerCash)
+                + ": покупки считаются по второй величине, поэтому заявку может отклонить "
+                + "брокер. Сверьте состав позиций и валюту расчётов");
         }
 
         /// <summary>
@@ -6081,6 +6321,7 @@ namespace OsEngine.Robots.MyRobots
                 + barTime.ToString("dd.MM.yyyy HH:mm", CultureInfo.InvariantCulture)
                 + ". Портфель: " + Math.Round(equity, 0)
                 + ", свободно " + Math.Round(_lastCashRaw, 0)
+                + GetBrokerMoneyText()
                 + ". Лестница: " + _ladder.GetLevelName() + " (" + _ladder.Level + ")"
                 + ", загрузка " + Math.Round(_ladder.KApplied, 3)
                 + ", просадка индекса " + Math.Round(_ladder.Drawdown, 1) + "%"
@@ -6152,6 +6393,7 @@ namespace OsEngine.Robots.MyRobots
                 + (_failedOrders > 0 ? ". Отказов заявок с прошлой ребалансировки: " + _failedOrders : "")
                 + ". Портфель: " + Math.Round(equity, 0)
                 + ". Деньги: " + Math.Round(_lastCashRaw, 0)
+                + GetBrokerMoneyText()
                 + ". ValueCurrent: " + Math.Round(_lastPortfolioValue, 0)
                 + ", вложено по входу: " + Math.Round(_lastInvestedAtCost, 0)
                 + ", позиции по рынку: " + Math.Round(_lastPositionsValue, 0);
