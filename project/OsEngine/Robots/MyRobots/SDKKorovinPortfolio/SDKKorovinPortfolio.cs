@@ -48,11 +48,7 @@ namespace OsEngine.Robots.MyRobots
 
         // Base
         private StrategyParameterString _regime;
-        private StrategyParameterString _schedule;
-        private StrategyParameterInt _scheduleDay;
         private StrategyParameterTimeOfDay _rebalanceTime;
-        private StrategyParameterInt _intervalDays;
-        private StrategyParameterInt _ladderMinDays;
         private StrategyParameterString _warmupPolicy;
         private StrategyParameterInt _warmupMinDays;
 
@@ -63,69 +59,117 @@ namespace OsEngine.Robots.MyRobots
         private StrategyParameterDecimal _stocksMaxPercent;
         private StrategyParameterDecimal _goldMinPercent;
         private StrategyParameterDecimal _cashMinPercent;
-        private StrategyParameterDecimal _stocksMinPercent;
-        private StrategyParameterString _reserveOrder;
-
-        // Market
-        private StrategyParameterDecimal _ddStartPercent;
-        private StrategyParameterDecimal _ddFullPercent;
-        private StrategyParameterDecimal _depthCurve;
-        private StrategyParameterDecimal _speedStartPercent;
-        private StrategyParameterDecimal _speedFullPercent;
-        private StrategyParameterDecimal _speedWeight;
-        private StrategyParameterDecimal _euphoriaDevStartPercent;
-        private StrategyParameterDecimal _euphoriaDevFullPercent;
-        private StrategyParameterDecimal _euphoriaWeight;
-        private StrategyParameterDecimal _stepUp;
-        private StrategyParameterDecimal _stepDown;
-        private StrategyParameterDecimal _minKStep;
-
-        private StrategyParameterString _indexDividendAdjust;
-        private StrategyParameterDecimal _peakDecayPercentPerYear;
-        private StrategyParameterInt _longSmaPeriod;
-        private StrategyParameterDecimal _hysteresis;
-        private StrategyParameterInt _exitDelayDays;
-        private StrategyParameterDecimal _exitRecoveryPercent;
-        private StrategyParameterInt _staleDays;
-        private StrategyParameterString _staleAction;
-        private StrategyParameterInt _speedWindow;
-        private StrategyParameterInt _speedHoldDays;
-
-        // Stocks
-        private StrategyParameterString _stockTilt;
-        private StrategyParameterInt _tiltLookback;
-        private StrategyParameterDecimal _tiltStrength;
-        private StrategyParameterDecimal _tiltMin;
-        private StrategyParameterDecimal _tiltMax;
-        private StrategyParameterString _idioGuard;
         private StrategyParameterInt _idioLookback;
         private StrategyParameterDecimal _idioThresholdPercent;
 
-        // Execution
-        private StrategyParameterString _reopenMode;
-        private StrategyParameterString _portfolioValueMode;
+        // Ladder
+        private StrategyParameterDecimal _peakDecayPercentPerYear;
+        private StrategyParameterDecimal _ddStartPercent;
+        private StrategyParameterDecimal _ddFullPercent;
+        private StrategyParameterDecimal _stepUp;
+        private StrategyParameterInt _exitDelayDays;
+        private StrategyParameterDecimal _exitRecoveryPercent;
+        private StrategyParameterDecimal _stepDown;
+
+        // Rebalance
+        private StrategyParameterInt _intervalDays;
         private StrategyParameterDecimal _bandAbsPercent;
         private StrategyParameterDecimal _bandRelPercent;
-        private StrategyParameterDecimal _hardBandMult;
         private StrategyParameterDecimal _minTradeMoney;
-        private StrategyParameterString _tradeTo;
         private StrategyParameterDecimal _cashInflowTriggerPercent;
-        private StrategyParameterInt _pendingBuysTtlBars;
-        private StrategyParameterInt _staleBarsLimit;
 
-        private StrategyParameterInt _tradeToleranceBars;
-        private StrategyParameterInt _syncToleranceBars;
-        private StrategyParameterDecimal _dividendTaxPercent;
-        private StrategyParameterInt _dividendHoldDays;
-        private StrategyParameterInt _dividendPayoutLagDays;
-
-        private StrategyParameterString _dividendGapNeutral;
+        // Execution
+        private StrategyParameterString _moneyPositionCode;
         private StrategyParameterString _depthCheck;
         private StrategyParameterDecimal _maxSlippagePercent;
         private StrategyParameterDecimal _cashBufferPercent;
-        private StrategyParameterString _moneyPositionCode;
-        private StrategyParameterString _freezeNearRecordDate;
-        private StrategyParameterInt _freezeDays;
+        private StrategyParameterInt _pendingBuysTtlBars;
+        private StrategyParameterInt _tradeToleranceBars;
+        private StrategyParameterInt _staleBarsLimit;
+        private StrategyParameterInt _syncToleranceBars;
+
+        // Dividends. Параметры обновления базы - ниже, у полей механизма обновления
+        private StrategyParameterDecimal _dividendTaxPercent;
+        private StrategyParameterInt _dividendPayoutLagDays;
+
+        // Константы алгоритма. Раньше были параметрами; значения - те, что подобраны
+        // оптимизацией и работают на реальном счёте. Описание - SDKKorovinPortfolio.md, раздел
+        // "Константы алгоритма"
+
+        /// <summary>
+        /// Сколько дневных значений индекса нужно лестнице. Пока их меньше, идёт прогрев
+        /// </summary>
+        private const int IndexHistoryDays = 200;
+
+        /// <summary>
+        /// Форма кривой глубины: степень, в которую возводится доля пройденного пути
+        /// от DD start до DD full. 1 - линейная, резерв расходуется равномерно по глубине
+        /// </summary>
+        private const decimal DepthCurve = 1m;
+
+        /// <summary>
+        /// Изменение загрузки меньше этого игнорируется: храповик не дёргает портфель по мелочи
+        /// </summary>
+        private const decimal MinKStep = 0.05m;
+
+        /// <summary>
+        /// Запрет обратного входа: отданную загрузку можно набрать снова, только когда индекс
+        /// опустился на столько процентов ниже точки выхода
+        /// </summary>
+        private const decimal ReentryHysteresisPercent = 2m;
+
+        /// <summary>
+        /// Сколько дней без нового дна просадка считается протухшей: загрузка отдаётся
+        /// по времени, даже без роста от дна
+        /// </summary>
+        private const int StaleDays = 120;
+
+        /// <summary>
+        /// Протухшая просадка снимает загрузку. false держал бы её до реального роста от дна
+        /// </summary>
+        private const bool StaleLowersLevel = true;
+
+        /// <summary>
+        /// Падение индекса за окно скорости, с которого скорость начинает добавлять загрузку, %
+        /// </summary>
+        private const decimal SpeedStartPercent = 5m;
+
+        /// <summary>
+        /// Падение за окно, дающее полный вклад скорости, %
+        /// </summary>
+        private const decimal SpeedFullPercent = 15m;
+
+        /// <summary>
+        /// Потолок вклада скорости падения в загрузку
+        /// </summary>
+        private const decimal SpeedWeight = 0.15m;
+
+        /// <summary>
+        /// Окно оценки скорости падения, дневных значений
+        /// </summary>
+        private const int SpeedWindow = 5;
+
+        /// <summary>
+        /// За сколько дней линейно затухает вклад скорости
+        /// </summary>
+        private const int SpeedHoldDays = 10;
+
+        /// <summary>
+        /// Пауза между ребалансировками по лестнице, дни. 1 - не чаще раза в день
+        /// </summary>
+        private const int LadderMinDays = 1;
+
+        /// <summary>
+        /// Во сколько раз перевес должен превысить полосу, чтобы срезаться продажей
+        /// даже при достатке денег на покупки
+        /// </summary>
+        private const decimal HardBandMult = 2m;
+
+        /// <summary>
+        /// Сколько дней дивиденд учитывается в нейтрализации гэпа, если плановой
+        /// ребалансировки не было
+        /// </summary>
+        private const int DividendHoldDays = 90;
 
         private KorovinDailySeries _indexSeries = new KorovinDailySeries();
 
@@ -313,8 +357,6 @@ namespace OsEngine.Robots.MyRobots
 
         private bool _negativeCashErrorSent;
 
-        private bool _reopenWarningSent;
-
         private const int AlertRepeatDays = 7;
 
         /// <summary>
@@ -381,8 +423,6 @@ namespace OsEngine.Robots.MyRobots
         private decimal _lastCashComputed;
 
         private decimal _lastReserveUp;
-
-        private decimal _lastReserveDown;
 
 
         private object _locker = new object();
@@ -457,15 +497,6 @@ namespace OsEngine.Robots.MyRobots
         {
             _regime = CreateParameter("Regime", "Off",
                 new[] { "Off", "On", "OnlyRebalanceNoNewMoney", "OnlyClosePosition" }, "Base");
-            _schedule = CreateParameter("Schedule", "Interval",
-                new[] { "Monthly", "Weekly", "Interval" }, "Base");
-            _scheduleDay = CreateParameter("Schedule day", 1, 1, 28, 1, "Base");
-            _rebalanceTime = CreateParameterTimeOfDay("Rebalance time", 11, 30, 0, 0, "Base");
-            _intervalDays = CreateParameter("Interval days", 50, 1, 200, 1, "Base");
-            _ladderMinDays = CreateParameter("Ladder min days", 1, 0, 90, 1, "Base");
-            _warmupPolicy = CreateParameter("Warmup policy", "NoTrade",
-                new[] { "NoTrade", "BaseWeightsOnly", "UseAvailable" }, "Base");
-            _warmupMinDays = CreateParameter("Warmup min days", 120, 20, 500, 10, "Base");
 
             _forceRebalanceButton = CreateParameterButton("Force rebalance now", "Base");
             _forceRebalanceButton.UserClickOnButtonEvent += ForceRebalanceButton_UserClickOnButtonEvent;
@@ -473,88 +504,63 @@ namespace OsEngine.Robots.MyRobots
             _nonTradePeriodsButton = CreateParameterButton("Non trade periods", "Base");
             _nonTradePeriodsButton.UserClickOnButtonEvent += NonTradePeriodsButton_UserClickOnButtonEvent;
 
+            _rebalanceTime = CreateParameterTimeOfDay("Rebalance time", 11, 30, 0, 0, "Base");
+            _warmupPolicy = CreateParameter("Warmup policy", "NoTrade",
+                new[] { "NoTrade", "BaseWeightsOnly", "UseAvailable" }, "Base");
+            _warmupMinDays = CreateParameter("Warmup min days", 120, 20, 500, 10, "Base");
+
+            // целевые веса: базовые доли, границы резерва и стоп-лист, замораживающий вес бумаги
             _stocksBasePercent = CreateParameter("Stocks base percent", 50m, 0m, 100m, 5m, "Allocation");
             _goldBasePercent = CreateParameter("Gold base percent", 25m, 0m, 100m, 5m, "Allocation");
             _cashBasePercent = CreateParameter("Cash base percent", 25m, 0m, 100m, 5m, "Allocation");
             _stocksMaxPercent = CreateParameter("Stocks max percent", 90m, 0m, 100m, 5m, "Allocation");
             _goldMinPercent = CreateParameter("Gold min percent", 5m, 0m, 100m, 5m, "Allocation");
             _cashMinPercent = CreateParameter("Cash min percent", 5m, 0m, 100m, 5m, "Allocation");
-            _stocksMinPercent = CreateParameter("Stocks min percent", 20m, 0m, 100m, 5m, "Allocation");
-            _reserveOrder = CreateParameter("Reserve order", "CashFirst",
-                new[] { "CashFirst", "GoldFirst", "Proportional" }, "Allocation");
+            _idioLookback = CreateParameter("Idio lookback", 60, 10, 400, 10, "Allocation");
+            _idioThresholdPercent = CreateParameter("Idio threshold percent", 30m, 5m, 90m, 5m, "Allocation");
 
-            _ddStartPercent = CreateParameter("DD start percent", 12m, 1m, 40m, 1m, "Market");
-            _ddFullPercent = CreateParameter("DD full percent", 35m, 5m, 90m, 1m, "Market");
-            _depthCurve = CreateParameter("Depth curve", 1.0m, 0.3m, 4m, 0.1m, "Market");
-            _speedStartPercent = CreateParameter("Speed start percent", 5m, 1m, 30m, 1m, "Market");
-            _speedFullPercent = CreateParameter("Speed full percent", 15m, 2m, 50m, 1m, "Market");
-            _speedWeight = CreateParameter("Speed weight", 0.15m, 0m, 1m, 0.05m, "Market");
-            _euphoriaDevStartPercent = CreateParameter("Euphoria dev start percent", 10m, 1m, 50m, 1m, "Market");
-            _euphoriaDevFullPercent = CreateParameter("Euphoria dev full percent", 25m, 2m, 80m, 1m, "Market");
-            _euphoriaWeight = CreateParameter("Euphoria weight", 0m, 0m, 1m, 0.05m, "Market");
-            _stepUp = CreateParameter("Step up", 0.1m, 0.01m, 1m, 0.01m, "Market");
-            _stepDown = CreateParameter("Step down", 0.2m, 0.01m, 1m, 0.01m, "Market");
-            _minKStep = CreateParameter("Min k step", 0.05m, 0.01m, 0.5m, 0.01m, "Market");
+            // лестница в порядке её работы: мерка просадки, вход, выход
+            _peakDecayPercentPerYear = CreateParameter("Peak decay percent per year", 15m, 0m, 100m, 5m, "Ladder");
+            _ddStartPercent = CreateParameter("DD start percent", 12m, 1m, 40m, 1m, "Ladder");
+            _ddFullPercent = CreateParameter("DD full percent", 35m, 5m, 90m, 1m, "Ladder");
+            _stepUp = CreateParameter("Step up", 0.1m, 0.01m, 1m, 0.01m, "Ladder");
+            _exitDelayDays = CreateParameter("Exit delay days", 25, 0, 250, 5, "Ladder");
+            _exitRecoveryPercent = CreateParameter("Exit recovery percent", 20m, 0m, 60m, 1m, "Ladder");
+            _stepDown = CreateParameter("Step down", 0.2m, 0.01m, 1m, 0.01m, "Ladder");
 
-            _indexDividendAdjust = CreateParameter("Index dividend adjust", "On",
-                new[] { "On", "Off" }, "Market");
-            _peakDecayPercentPerYear = CreateParameter("Peak decay percent per year", 15m, 0m, 100m, 5m, "Market");
-            _longSmaPeriod = CreateParameter("Long sma period", 200, 20, 500, 10, "Market");
-            _hysteresis = CreateParameter("Hysteresis", 2m, 0m, 20m, 1m, "Market");
-            _exitDelayDays = CreateParameter("Exit delay days", 25, 0, 250, 5, "Market");
-            _exitRecoveryPercent = CreateParameter("Exit recovery percent", 20m, 0m, 60m, 1m, "Market");
-            _staleDays = CreateParameter("Stale days", 120, 10, 500, 10, "Market");
-            _staleAction = CreateParameter("Stale action", "LowerLevel",
-                new[] { "LowerLevel", "KeepLevel" }, "Market");
-            _speedWindow = CreateParameter("Speed window", 5, 2, 40, 1, "Market");
-            _speedHoldDays = CreateParameter("Speed hold days", 10, 0, 100, 5, "Market");
+            // когда портфель трогать: плановый интервал, полосы допуска, пороги
+            _intervalDays = CreateParameter("Interval days", 50, 1, 200, 1, "Rebalance");
+            _bandAbsPercent = CreateParameter("Band abs percent", 2m, 0m, 20m, 0.5m, "Rebalance");
+            _bandRelPercent = CreateParameter("Band rel percent", 30m, 0m, 100m, 5m, "Rebalance");
+            _minTradeMoney = CreateParameter("Min trade money", 5000m, 0m, 1000000m, 1000m, "Rebalance");
+            _cashInflowTriggerPercent = CreateParameter("Cash inflow trigger percent", 1m, 0m, 50m, 0.5m, "Rebalance");
 
-            _stockTilt = CreateParameter("Stock tilt", "Off", new[] { "Off", "On" }, "Stocks");
-            _tiltLookback = CreateParameter("Tilt lookback", 120, 10, 500, 10, "Stocks");
-            _tiltStrength = CreateParameter("Tilt strength", 1m, 0m, 5m, 0.1m, "Stocks");
-            _tiltMin = CreateParameter("Tilt min", 0.7m, 0.1m, 1m, 0.05m, "Stocks");
-            _tiltMax = CreateParameter("Tilt max", 1.3m, 1m, 3m, 0.05m, "Stocks");
-            _idioGuard = CreateParameter("Idio guard", "On", new[] { "On", "Off" }, "Stocks");
-            _idioLookback = CreateParameter("Idio lookback", 60, 10, 400, 10, "Stocks");
-            _idioThresholdPercent = CreateParameter("Idio threshold percent", 30m, 5m, 90m, 5m, "Stocks");
-
-            _reopenMode = CreateParameter("Reopen mode", "Off", new[] { "Off", "On" }, "Execution");
-            _portfolioValueMode = CreateParameter("Portfolio value mode", "Auto",
-                new[] { "Auto", "CashAndRealized", "FullPortfolioValue" }, "Execution");
-            _bandAbsPercent = CreateParameter("Band abs percent", 2m, 0m, 20m, 0.5m, "Execution");
-            _bandRelPercent = CreateParameter("Band rel percent", 30m, 0m, 100m, 5m, "Execution");
-            _hardBandMult = CreateParameter("Hard band mult", 2m, 1m, 10m, 0.5m, "Execution");
-            _minTradeMoney = CreateParameter("Min trade money", 5000m, 0m, 1000000m, 1000m, "Execution");
-            _tradeTo = CreateParameter("Trade to", "Target", new[] { "Target", "BandEdge" }, "Execution");
-            _cashInflowTriggerPercent = CreateParameter("Cash inflow trigger percent", 1m, 0m, 50m, 0.5m, "Execution");
-            _pendingBuysTtlBars = CreateParameter("Pending buys ttl bars", 3, 1, 50, 1, "Execution");
-            _staleBarsLimit = CreateParameter("Stale bars limit", 5, 1, 100, 1, "Execution");
-            _tradeToleranceBars = CreateParameter("Trade tolerance bars", 1, 0, 10, 1, "Execution");
-            _syncToleranceBars = CreateParameter("Sync tolerance bars", 3, 0, 20, 1, "Execution");
-            _dividendTaxPercent = CreateParameter("Dividend tax percent", 13m, 0m, 50m, 1m, "Execution");
-            _dividendHoldDays = CreateParameter("Dividend hold days", 90, 10, 400, 10, "Execution");
-            _dividendPayoutLagDays = CreateParameter("Dividend payout lag days", 14, 0, 60, 1, "Execution");
-            _dividendGapNeutral = CreateParameter("Dividend gap neutral", "On",
-                new[] { "On", "Off" }, "Execution");
+            // исполнение у брокера и допуски по данным. Режимы тестера (переоткрытие позиций,
+            // смысл стоимости портфеля) задаются типом запуска: IsReopenAllowed,
+            // IsFullPortfolioValueMode
+            _moneyPositionCode = CreateParameter("Money position code", "rub", "Execution");
             _depthCheck = CreateParameter("Depth check", "On", new[] { "On", "Off" }, "Execution");
             _maxSlippagePercent = CreateParameter("Max slippage percent", 0.3m, 0.01m, 5m, 0.05m, "Execution");
             _cashBufferPercent = CreateParameter("Cash buffer percent", 0.3m, 0m, 5m, 0.1m, "Execution");
-            _moneyPositionCode = CreateParameter("Money position code", "rub", "Execution");
-            _freezeNearRecordDate = CreateParameter("Freeze near record date", "Off",
-                new[] { "Off", "On" }, "Execution");
-            _freezeDays = CreateParameter("Freeze days", 5, 1, 60, 1, "Execution");
+            _pendingBuysTtlBars = CreateParameter("Pending buys ttl bars", 3, 1, 50, 1, "Execution");
+            _tradeToleranceBars = CreateParameter("Trade tolerance bars", 1, 0, 10, 1, "Execution");
+            _staleBarsLimit = CreateParameter("Stale bars limit", 5, 1, 100, 1, "Execution");
+            _syncToleranceBars = CreateParameter("Sync tolerance bars", 3, 0, 20, 1, "Execution");
+
+            _dividendTaxPercent = CreateParameter("Dividend tax percent", 13m, 0m, 50m, 1m, "Dividends");
+            _dividendPayoutLagDays = CreateParameter("Dividend payout lag days", 14, 0, 60, 1, "Dividends");
 
             _autoUpdateDividends = CreateParameter("Auto update dividends", "On",
-                new[] { "On", "Off" }, "Update");
+                new[] { "On", "Off" }, "Dividends");
 
             // время проверки должно попадать в торговое окно робота (неторговые периоды
             // отсекают всё до 10:00 и после 19:00) и стоять раньше времени ребалансировки:
             // обновление идёт внешним процессом и занимает время, а решение принимается в 11:30
             _dividendsUpdateCheckTime = CreateParameterTimeOfDay("Dividends update check time",
-                10, 30, 0, 0, "Update");
-            _dividendsMaxAgeDays = CreateParameter("Dividends max age days", 5, 1, 60, 1, "Update");
+                10, 30, 0, 0, "Dividends");
+            _dividendsMaxAgeDays = CreateParameter("Dividends max age days", 5, 1, 60, 1, "Dividends");
 
-            _updateDividendsButton = CreateParameterButton("Start update dividends", "Update");
+            _updateDividendsButton = CreateParameterButton("Start update dividends", "Dividends");
             _updateDividendsButton.UserClickOnButtonEvent += UpdateDividendsButton_UserClickOnButtonEvent;
         }
 
@@ -1230,7 +1236,6 @@ namespace OsEngine.Robots.MyRobots
             _warmupSince = DateTime.MinValue;
             _warmupErrorSent = false;
             _negativeCashErrorSent = false;
-            _reopenWarningSent = false;
             _cashReserveMessageDate = DateTime.MinValue;
             _lastDividendsCheckDate = DateTime.MinValue;
             _forceRebalance = false;
@@ -1745,10 +1750,8 @@ namespace OsEngine.Robots.MyRobots
         /// </summary>
         private void CheckFormulaCoversBasket(DateTime barTime)
         {
-            // при Off корзина и множители в ряду не участвуют вовсе, а пустая формула -
-            // это ненастроенная вкладка, а не ошибка состава
-            if (_indexDividendAdjust.ValueString != "On"
-                || _tabIndex == null
+            // пустая формула - это ненастроенная вкладка, а не ошибка состава
+            if (_tabIndex == null
                 || _tabIndex.Tabs == null
                 || _tabIndex.Tabs.Count == 0
                 || _totalReturnIndex.FormulaIsEmpty)
@@ -1800,12 +1803,12 @@ namespace OsEngine.Robots.MyRobots
                 + "(всего инструментов во вкладке " + _tabIndex.Tabs.Count + "). В расчёт "
                 + "дивидендного гэпа они всё равно попадают, с весом 1, поэтому ряд total "
                 + "return считается неверно. Поднимите Sec count автоформулы до числа "
-                + "инструментов вкладки либо выключите Index dividend adjust");
+                + "инструментов вкладки");
         }
 
         private bool UpdateLadder(DateTime barTime)
         {
-            _totalReturnIndex.DividendAdjust = _indexDividendAdjust.ValueString == "On";
+            // дивидендная коррекция ряда включена всегда: DividendAdjust = true по умолчанию
             _totalReturnIndex.SetFormula(_tabIndex != null ? _tabIndex.UserFormula : null);
             CheckFormulaCoversBasket(barTime);
             _totalReturnIndex.Rebuild(_indexSeries, _basketSeries, _basketTickers, _dividends,
@@ -1828,7 +1831,7 @@ namespace OsEngine.Robots.MyRobots
                     _totalReturnIndex.Dates, _totalReturnIndex.Values), barTime);
             }
 
-            int requiredDays = _longSmaPeriod.ValueInt;
+            int requiredDays = IndexHistoryDays;
 
             int haveDays = _totalReturnIndex.Values.Count;
 
@@ -1881,18 +1884,18 @@ namespace OsEngine.Robots.MyRobots
 
             ApplyLadderSettings();
 
-            // формула индексной вкладки, состав корзины или флаг дивидендной коррекции
-            // поменялись на ходу: ряд пересчитан по другим правилам, и накопленные пик, дно
-            // и загрузка относятся к ряду, которого больше нет
+            // формула индексной вкладки или состав корзины поменялись на ходу: ряд пересчитан
+            // по другим правилам, и накопленные пик, дно и загрузка относятся к ряду,
+            // которого больше нет
             if (_totalReturnIndex.SeriesRebuilt)
             {
                 _totalReturnIndex.SeriesRebuilt = false;
 
                 _ladder.Reset();
 
-                SendNewLogMessage("Ряд индекса пересобран по новым правилам (формула, состав "
-                    + "корзины или Index dividend adjust): лестница сброшена, состояние рынка "
-                    + "считается заново", LogMessageType.Error);
+                SendNewLogMessage("Ряд индекса пересобран по новым правилам (формула или состав "
+                    + "корзины): лестница сброшена, состояние рынка считается заново",
+                    LogMessageType.Error);
             }
 
             // сначала прогон по истории, потом снимок: Process при первом вызове проходит
@@ -1911,31 +1914,37 @@ namespace OsEngine.Robots.MyRobots
             return false;
         }
 
+        /// <summary>
+        /// Настройки лестницы. Класс лестницы общий с SDKKorovinStocks, и умолчания у него
+        /// свои, поэтому здесь задаётся всё явно - и параметры, и константы
+        /// </summary>
         private void ApplyLadderSettings()
         {
             _ladder.PeakDecayPercentPerYear = _peakDecayPercentPerYear.ValueDecimal;
-            _ladder.LongSmaPeriod = _longSmaPeriod.ValueInt;
+            _ladder.LongSmaPeriod = IndexHistoryDays;
 
-            _ladder.Hysteresis = _hysteresis.ValueDecimal;
+            _ladder.Hysteresis = ReentryHysteresisPercent;
             _ladder.ExitDelayDays = _exitDelayDays.ValueInt;
             _ladder.ExitRecoveryPercent = _exitRecoveryPercent.ValueDecimal;
-            _ladder.StaleDays = _staleDays.ValueInt;
-            _ladder.StaleLowersLevel = _staleAction.ValueString == "LowerLevel";
-            _ladder.SpeedWindow = _speedWindow.ValueInt;
-            _ladder.SpeedHoldDays = _speedHoldDays.ValueInt;
+            _ladder.StaleDays = StaleDays;
+            _ladder.StaleLowersLevel = StaleLowersLevel;
+            _ladder.SpeedWindow = SpeedWindow;
+            _ladder.SpeedHoldDays = SpeedHoldDays;
 
             _ladder.DdStartPercent = _ddStartPercent.ValueDecimal;
             _ladder.DdFullPercent = _ddFullPercent.ValueDecimal;
-            _ladder.DepthCurve = _depthCurve.ValueDecimal;
-            _ladder.SpeedStartPercent = _speedStartPercent.ValueDecimal;
-            _ladder.SpeedFullPercent = _speedFullPercent.ValueDecimal;
-            _ladder.SpeedWeight = _speedWeight.ValueDecimal;
-            _ladder.EuphoriaDevStartPercent = _euphoriaDevStartPercent.ValueDecimal;
-            _ladder.EuphoriaDevFullPercent = _euphoriaDevFullPercent.ValueDecimal;
-            _ladder.EuphoriaWeight = _euphoriaWeight.ValueDecimal;
+            _ladder.DepthCurve = DepthCurve;
+            _ladder.SpeedStartPercent = SpeedStartPercent;
+            _ladder.SpeedFullPercent = SpeedFullPercent;
+            _ladder.SpeedWeight = SpeedWeight;
+
+            // сокращения доли акций на перегреве в этом роботе нет: загрузка не бывает
+            // отрицательной. Умолчание класса включило бы его
+            _ladder.EuphoriaWeight = 0m;
+
             _ladder.StepUp = _stepUp.ValueDecimal;
             _ladder.StepDown = _stepDown.ValueDecimal;
-            _ladder.MinKStep = _minKStep.ValueDecimal;
+            _ladder.MinKStep = MinKStep;
         }
 
         #endregion
@@ -2170,7 +2179,7 @@ namespace OsEngine.Robots.MyRobots
             }
             else
             {
-                // CashAndRealized - осознанный бухгалтерский режим: там cash означает
+                // тестер и оптимизатор - осознанный бухгалтерский режим: здесь cash означает
                 // «деньги плюс реализованное», а не свободный остаток счёта, и подменять
                 // его настоящими деньгами нельзя - вместе с ним поменяется смысл equity
                 cash = portfolioValue - investedAtCost;
@@ -2214,7 +2223,7 @@ namespace OsEngine.Robots.MyRobots
         private void ReportOverInvested(decimal cash, decimal equity, decimal positionsValue,
             decimal portfolioValue)
         {
-            // В CashAndRealized проверять нечего: там cash = стоимость портфеля минус
+            // В тестере и оптимизаторе проверять нечего: там cash = стоимость портфеля минус
             // вложенное ПО ЦЕНЕ ВХОДА, и как только позиции уходят ниже входа, разность
             // становится отрицательной по определению. Это нереализованный убыток, а не
             // расхождение с брокером, и сравнивать его не с чем: величина вообще не про
@@ -2344,11 +2353,6 @@ namespace OsEngine.Robots.MyRobots
                 problems.Add("Stocks base percent больше Stocks max percent");
             }
 
-            if (stocksBase < _stocksMinPercent.ValueDecimal)
-            {
-                problems.Add("Stocks base percent меньше Stocks min percent");
-            }
-
             decimal reserve = (cashBase - _cashMinPercent.ValueDecimal)
                 + (goldBase - _goldMinPercent.ValueDecimal);
 
@@ -2369,20 +2373,10 @@ namespace OsEngine.Robots.MyRobots
                 problems.Add("DD start percent не меньше DD full percent");
             }
 
-
-            if (_speedStartPercent.ValueDecimal >= _speedFullPercent.ValueDecimal)
+            if (MinKStep > _stepUp.ValueDecimal)
             {
-                problems.Add("Speed start percent не меньше Speed full percent");
-            }
-
-            if (_euphoriaDevStartPercent.ValueDecimal >= _euphoriaDevFullPercent.ValueDecimal)
-            {
-                problems.Add("Euphoria dev start percent не меньше Euphoria dev full percent");
-            }
-
-            if (_minKStep.ValueDecimal > _stepUp.ValueDecimal)
-            {
-                problems.Add("Min k step больше Step up: докупка не сможет сработать");
+                problems.Add("Step up меньше порога изменения загрузки " + MinKStep
+                    + ": докупка не сможет сработать");
             }
 
             if (reserve < roomToMax)
@@ -2459,18 +2453,16 @@ namespace OsEngine.Robots.MyRobots
                 LogMessageType.Error);
         }
 
+        /// <summary>
+        /// Что означает Portfolio.ValueCurrent. У брокера это полная стоимость счёта (у TInvest
+        /// TotalAmountPortfolio), и свободные деньги берутся из денежной позиции брокера.
+        /// В тестере и оптимизаторе это стартовый депозит плюс реализованный результат,
+        /// и деньги считаются вычитанием вложенного по цене входа. Перепутать нельзя ни в одну
+        /// сторону: в реале второй способ учёл бы нереализованную прибыль дважды, в тестере
+        /// первый потерял бы её вовсе. Поэтому режим задаётся типом запуска, а не настройкой
+        /// </summary>
         private bool IsFullPortfolioValueMode()
         {
-            if (_portfolioValueMode.ValueString == "FullPortfolioValue")
-            {
-                return true;
-            }
-
-            if (_portfolioValueMode.ValueString == "CashAndRealized")
-            {
-                return false;
-            }
-
             return StartProgram == StartProgram.IsOsTrader;
         }
 
@@ -2643,12 +2635,6 @@ namespace OsEngine.Robots.MyRobots
                 stocksWeight = _stocksMaxPercent.ValueDecimal;
             }
 
-            if (stocksWeight < 0)
-            {
-                cashWeight += stocksWeight;
-                stocksWeight = 0;
-            }
-
             DistributeStockWeights(assets, stocksWeight, equity);
 
             for (int i = 0; i < assets.Count; i++)
@@ -2666,7 +2652,8 @@ namespace OsEngine.Robots.MyRobots
 
         /// <summary>
         /// Сдвиг доли акций в процентных пунктах - доля от физически доступного резерва,
-        /// поэтому параметры не могут потребовать больше, чем есть
+        /// поэтому параметры не могут потребовать больше, чем есть. Сдвиг только вверх:
+        /// сокращения доли акций ниже базовой в роботе нет
         /// </summary>
         private decimal GetShiftPercent(decimal stocksBase, decimal cashRoom, decimal goldRoom)
         {
@@ -2683,28 +2670,21 @@ namespace OsEngine.Robots.MyRobots
                 reserveUp = 0;
             }
 
-            decimal reserveDown = stocksBase - _stocksMinPercent.ValueDecimal;
-
-            if (reserveDown < 0)
-            {
-                reserveDown = 0;
-            }
-
             _lastReserveUp = reserveUp;
-            _lastReserveDown = reserveDown;
 
             decimal load = GetEffectiveLoad();
 
-            if (load >= 0)
+            if (load <= 0)
             {
-                return load * reserveUp;
+                return 0;
             }
 
-            return load * reserveDown;
+            return load * reserveUp;
         }
 
         /// <summary>
-        /// Откуда берём деньги под сдвиг: сначала кэш, сначала золото или пропорционально
+        /// Откуда берём деньги под сдвиг: сначала кэш до Cash min, остаток - из золота
+        /// до Gold min
         /// </summary>
         private void SplitShift(decimal shift, decimal cashRoom, decimal goldRoom,
             out decimal fromCash, out decimal fromGold)
@@ -2714,30 +2694,6 @@ namespace OsEngine.Robots.MyRobots
 
             if (shift <= 0)
             {
-                // избыток акций возвращаем в кэш
-                fromCash = shift;
-                return;
-            }
-
-            if (_reserveOrder.ValueString == "GoldFirst")
-            {
-                fromGold = shift > goldRoom ? goldRoom : shift;
-                decimal rest = shift - fromGold;
-                fromCash = rest > cashRoom ? cashRoom : rest;
-                return;
-            }
-
-            if (_reserveOrder.ValueString == "Proportional")
-            {
-                decimal total = cashRoom + goldRoom;
-
-                if (total <= 0)
-                {
-                    return;
-                }
-
-                fromCash = shift * cashRoom / total;
-                fromGold = shift * goldRoom / total;
                 return;
             }
 
@@ -2770,12 +2726,6 @@ namespace OsEngine.Robots.MyRobots
             for (int i = 0; i < stocks.Count; i++)
             {
                 shares[i] = 1m / stocks.Count;
-
-                if (_stockTilt.ValueString == "On")
-                {
-                    shares[i] = shares[i] * GetTilt(stocks, i);
-                }
-
                 sharesSum += shares[i];
             }
 
@@ -2829,53 +2779,6 @@ namespace OsEngine.Robots.MyRobots
             }
         }
 
-        private decimal GetTilt(List<KorovinAsset> stocks, int index)
-        {
-            List<decimal> returns = new List<decimal>();
-
-            for (int i = 0; i < stocks.Count; i++)
-            {
-                returns.Add(GetTotalReturn(stocks[i].Name, _tiltLookback.ValueInt));
-            }
-
-            decimal median = GetMedian(returns);
-
-            decimal tilt = 1m + _tiltStrength.ValueDecimal * (median - returns[index]) / 100m;
-
-            if (tilt < _tiltMin.ValueDecimal)
-            {
-                tilt = _tiltMin.ValueDecimal;
-            }
-
-            if (tilt > _tiltMax.ValueDecimal)
-            {
-                tilt = _tiltMax.ValueDecimal;
-            }
-
-            return tilt;
-        }
-
-        private decimal GetMedian(List<decimal> values)
-        {
-            if (values == null
-                || values.Count == 0)
-            {
-                return 0;
-            }
-
-            List<decimal> sorted = new List<decimal>(values);
-            sorted.Sort();
-
-            int middle = sorted.Count / 2;
-
-            if (sorted.Count % 2 == 1)
-            {
-                return sorted[middle];
-            }
-
-            return (sorted[middle - 1] + sorted[middle]) / 2m;
-        }
-
         /// <summary>
         /// Доходность бумаги за период с учётом дивидендов, в процентах
         /// </summary>
@@ -2919,12 +2822,6 @@ namespace OsEngine.Robots.MyRobots
 
         private void UpdateFrozenSecurities(List<KorovinAsset> assets, DateTime barTime)
         {
-            if (_idioGuard.ValueString == "Off")
-            {
-                _frozenSecurities.Clear();
-                return;
-            }
-
             if (_totalReturnIndex.Values == null
                 || _totalReturnIndex.Values.Count < _idioLookback.ValueInt)
             {
@@ -3098,9 +2995,9 @@ namespace OsEngine.Robots.MyRobots
             DateTime from = _state.LastScheduledDate;
 
             if (from == DateTime.MinValue
-                || (barTime.Date - from).TotalDays > _dividendHoldDays.ValueInt)
+                || (barTime.Date - from).TotalDays > DividendHoldDays)
             {
-                from = barTime.Date.AddDays(-_dividendHoldDays.ValueInt);
+                from = barTime.Date.AddDays(-DividendHoldDays);
             }
 
             Dictionary<string, decimal> fresh = new Dictionary<string, decimal>();
@@ -3183,8 +3080,7 @@ namespace OsEngine.Robots.MyRobots
                 {
                     SendNewLogMessage("Дивиденд " + asset.Name + ": " + Math.Round(money)
                         + " руб. после налога, выплат в окне " + payments.Count
-                        + ". Гэп компенсируется в триггерах: "
-                        + _dividendGapNeutral.ValueString, LogMessageType.System);
+                        + ". Гэп компенсируется в триггерах", LogMessageType.System);
                 }
             }
 
@@ -3434,20 +3330,15 @@ namespace OsEngine.Robots.MyRobots
                 return ladderReason;
             }
 
-            bool gapNeutral = _dividendGapNeutral.ValueString == "On";
-
             decimal effectiveCash = cash;
 
-            if (gapNeutral)
+            // вычитается только то, что уже зачислено: приход дивидендов не должен
+            // выглядеть пополнением счёта. А вот до выплаты денег на счёте нет, и вычитать
+            // их значило бы занижать свободные деньги на все недели между отсечкой
+            // и зачислением - вместе с настоящим пополнением, если оно придётся на это окно
+            for (int i = 0; i < assets.Count; i++)
             {
-                // вычитается только то, что уже зачислено: приход дивидендов не должен
-                // выглядеть пополнением счёта. А вот до выплаты денег на счёте нет, и вычитать
-                // их значило бы занижать свободные деньги на все недели между отсечкой
-                // и зачислением - вместе с настоящим пополнением, если оно придётся на это окно
-                for (int i = 0; i < assets.Count; i++)
-                {
-                    effectiveCash -= assets[i].PendingDividendPaid;
-                }
+                effectiveCash -= assets[i].PendingDividendPaid;
             }
 
             if (effectiveCash > equity * _cashInflowTriggerPercent.ValueDecimal / 100m)
@@ -3473,11 +3364,9 @@ namespace OsEngine.Robots.MyRobots
                     continue;
                 }
 
-                // при Off дивидендный гэп не компенсируется: просевшая после отсечки бумага
-                // выглядит недовешенной и подбирается как обычное отклонение веса
-                decimal effectiveValue = gapNeutral
-                    ? asset.Value + asset.PendingDividend
-                    : asset.Value;
+                // дивидендный гэп компенсируется: просевшая после отсечки бумага вместе
+                // с начисленным дивидендом весит столько же, сколько до отсечки
+                decimal effectiveValue = asset.Value + asset.PendingDividend;
 
                 decimal delta = asset.TargetMoney - effectiveValue;
 
@@ -3506,19 +3395,18 @@ namespace OsEngine.Robots.MyRobots
         }
 
         /// <summary>
-        /// Не слишком ли рано для новой ступени. Ladder min days задаёт паузу между
+        /// Не слишком ли рано для новой ступени. LadderMinDays задаёт паузу между
         /// ребалансировками по лестнице: без неё дёрганый рынок гоняет портфель каждый день
         /// </summary>
         private bool IsLadderOnHold()
         {
-            if (_ladderMinDays.ValueInt <= 0
-                || _state.LastLadderDate == DateTime.MinValue
+            if (_state.LastLadderDate == DateTime.MinValue
                 || _lastBarTime == DateTime.MinValue)
             {
                 return false;
             }
 
-            return (_lastBarTime.Date - _state.LastLadderDate).TotalDays < _ladderMinDays.ValueInt;
+            return (_lastBarTime.Date - _state.LastLadderDate).TotalDays < LadderMinDays;
         }
 
         /// <summary>
@@ -3539,97 +3427,24 @@ namespace OsEngine.Robots.MyRobots
         /// <summary>
         /// Наступил ли день плановой ребалансировки.
         ///
-        /// Monthly и Weekly привязаны к явному дню: Schedule day - это число месяца или номер
-        /// дня недели, и плановая идёт ровно в этот день, один раз в период. Если день пропущен
-        /// (выходной, нет данных, робот был выключен), плановая проходит в первый следующий
-        /// день периода - иначе она потерялась бы целиком.
-        ///
-        /// Interval отсчитывает дни от ЛЮБОЙ последней ребалансировки, включая лестничную:
-        /// если робот только что перетряхнул портфель по лестнице, плановая поверх неё не нужна
+        /// Плановая идёт через Interval days дней после ЛЮБОЙ последней ребалансировки,
+        /// включая лестничную: если робот только что перетряхнул портфель по лестнице,
+        /// плановая поверх неё не нужна. Это страховка на случай стоячего рынка, когда
+        /// ни один рыночный повод не срабатывает
         /// </summary>
         private bool IsScheduledDay(DateTime barTime)
         {
             DateTime today = barTime.Date;
 
-            if (_schedule.ValueString == "Interval")
+            DateTime last = _state.LastRebalanceDate;
+
+            if (last == DateTime.MinValue)
             {
-                DateTime last = _state.LastRebalanceDate;
-
-                if (last == DateTime.MinValue)
-                {
-                    return true;
-                }
-
-                return (today - last).TotalDays >= _intervalDays.ValueInt;
+                return true;
             }
 
-            DateTime lastScheduled = _state.LastScheduledDate;
-
-            if (_schedule.ValueString == "Weekly")
-            {
-                int targetDay = _scheduleDay.ValueInt;
-
-                if (targetDay > 7)
-                {
-                    targetDay = 7;
-                }
-
-                // в DayOfWeek воскресенье это 0, а у нас 7: неделя человеческая
-                int currentDay = (int)today.DayOfWeek;
-
-                if (currentDay == 0)
-                {
-                    currentDay = 7;
-                }
-
-                if (lastScheduled == DateTime.MinValue)
-                {
-                    return currentDay >= targetDay;
-                }
-
-                if (GetWeekKey(lastScheduled) == GetWeekKey(today))
-                {
-                    return false;
-                }
-
-                return currentDay >= targetDay;
-            }
-
-            // Monthly
-            if (lastScheduled == DateTime.MinValue)
-            {
-                return today.Day >= _scheduleDay.ValueInt;
-            }
-
-            if (lastScheduled.Year == today.Year
-                && lastScheduled.Month == today.Month)
-            {
-                return false;
-            }
-
-            return today.Day >= _scheduleDay.ValueInt;
+            return (today - last).TotalDays >= _intervalDays.ValueInt;
         }
-
-        /// <summary>
-        /// Номер недели, к которой относится день. Нужен, чтобы отличить "уже была на этой
-        /// неделе" от "новая неделя началась"
-        /// </summary>
-        private static int GetWeekKey(DateTime date)
-        {
-            int day = (int)date.DayOfWeek;
-
-            if (day == 0)
-            {
-                day = 7;
-            }
-
-            DateTime monday = date.Date.AddDays(1 - day);
-
-            return (int)(monday - new DateTime(2000, 1, 3)).TotalDays / 7;
-        }
-
-
-
 
         /// <summary>
         /// Запомнить отметки «повод отработан» до того, как их перепишет регистрация.
@@ -3815,7 +3630,7 @@ namespace OsEngine.Robots.MyRobots
         /// только лестничные отметки, чтобы повод LoadChange сработал заново.
         ///
         /// LastLadderDate возвращается обязательно, иначе откат бесполезен: пока идёт пауза
-        /// Ladder min days, GetEffectiveLoad отдаёт сам LastLoad, он же сравнивается с собой,
+        /// LadderMinDays, GetEffectiveLoad отдаёт сам LastLoad, он же сравнивается с собой,
         /// и лестничный повод не сработает никогда, а целевые веса будут считаться
         /// по старой загрузке.
         ///
@@ -4031,8 +3846,10 @@ namespace OsEngine.Robots.MyRobots
 
                 if (reason == "Scheduled")
                 {
-                    // плановая состоялась: портфель проверен, отклонений нет. Без отметки
-                    // повод Scheduled возвращался бы каждый день и подавлял все остальные
+                    // плановая состоялась: портфель проверен, отклонений нет. Отметка открывает
+                    // новое окно дивидендов для нейтрализации гэпа. Отсчёт Interval days она
+                    // не сдвигает - он идёт от последней ребалансировки со сделками, поэтому
+                    // пустая плановая повторится на следующий день
                     _state.LastScheduledDate = barTime.Date;
                     SaveState();
                 }
@@ -4142,7 +3959,7 @@ namespace OsEngine.Robots.MyRobots
 
                 for (int i = 0; i < sells.Count; i++)
                 {
-                    bool isHard = Math.Abs(sells[i].Delta) > sells[i].Band * _hardBandMult.ValueDecimal;
+                    bool isHard = Math.Abs(sells[i].Delta) > sells[i].Band * HardBandMult;
 
                     if (sells[i].SellForCashReserve)
                     {
@@ -4703,21 +4520,12 @@ namespace OsEngine.Robots.MyRobots
             return result;
         }
 
+        /// <summary>
+        /// Сумма сделки: вес доводится до цели целиком, а не до границы полосы
+        /// </summary>
         private decimal GetTradeMoney(KorovinAsset asset)
         {
-            decimal money = Math.Abs(asset.Delta);
-
-            if (_tradeTo.ValueString == "BandEdge")
-            {
-                money = money - asset.Band;
-            }
-
-            if (money < 0)
-            {
-                money = 0;
-            }
-
-            return money;
+            return Math.Abs(asset.Delta);
         }
 
         private decimal ExecuteSells(List<KorovinAsset> sells, bool reopen,
@@ -4753,13 +4561,6 @@ namespace OsEngine.Robots.MyRobots
                     || reopen)
                 {
                     volume = asset.Volume;
-                }
-
-                if (IsFreezeNearRecordDate(asset))
-                {
-                    SendNewLogMessage("Продажа " + asset.Name +
-                        " отложена: близка дивидендная отсечка", LogMessageType.System);
-                    continue;
                 }
 
                 moneySum += ClosePartOfPosition(asset, volume, sentOrders);
@@ -5853,50 +5654,16 @@ namespace OsEngine.Robots.MyRobots
             return Math.Floor(volume * multiplier) / multiplier;
         }
 
+        /// <summary>
+        /// Режим Reopen: любое изменение объёма - полное закрытие позиции и открытие новой.
+        /// Включён в тестере и оптимизаторе, и там он обязателен: тестер возвращает деньги
+        /// в портфель только при полном закрытии позиции, и без переоткрытия прибыль
+        /// от частичных продаж пропадала бы из учёта. В реальной торговле выключен:
+        /// капитал считает брокер, и частичная корректировка дешевле по комиссии
+        /// </summary>
         private bool IsReopenAllowed()
         {
-            if (_reopenMode.ValueString != "On")
-            {
-                return false;
-            }
-
-            if (StartProgram == StartProgram.IsOsTrader)
-            {
-                // проверка вызывается на каждой ребалансировке, поэтому сообщение - один раз
-                if (_reopenWarningSent == false)
-                {
-                    _reopenWarningSent = true;
-
-                    SendExecutionProblem("В настройках включён Reopen mode - тестовый режим, "
-                        + "запрещённый в реальной торговле. Используется обычный режим, "
-                        + "но конфигурация отличается от протестированной");
-                }
-
-                return false;
-            }
-
-            return true;
-        }
-
-        private bool IsFreezeNearRecordDate(KorovinAsset asset)
-        {
-            if (_freezeNearRecordDate.ValueString != "On"
-                || asset.Type != KorovinAssetType.Stock)
-            {
-                return false;
-            }
-
-            DateTime nextRecordDate = _dividends.GetNextRecordDate(asset.Name, asset.LastCandleTime);
-
-            if (nextRecordDate == DateTime.MinValue)
-            {
-                return false;
-            }
-
-            double daysLeft = (nextRecordDate - asset.LastCandleTime.Date).TotalDays;
-
-            return daysLeft >= 0
-                && daysLeft <= _freezeDays.ValueInt;
+            return StartProgram != StartProgram.IsOsTrader;
         }
 
         /// <summary>
@@ -6336,30 +6103,20 @@ namespace OsEngine.Robots.MyRobots
         /// </summary>
         private string GetNextScheduledText(DateTime barTime)
         {
-            if (_schedule.ValueString == "Interval")
+            if (_state.LastRebalanceDate == DateTime.MinValue)
             {
-                if (_state.LastRebalanceDate == DateTime.MinValue)
-                {
-                    return "Плановая: ждёт первой ребалансировки";
-                }
-
-                int left = _intervalDays.ValueInt
-                    - (int)(barTime.Date - _state.LastRebalanceDate.Date).TotalDays;
-
-                if (left < 0)
-                {
-                    left = 0;
-                }
-
-                return "Плановая через " + left + " дн.";
+                return "Плановая: ждёт первой ребалансировки";
             }
 
-            if (_schedule.ValueString == "Weekly")
+            int left = _intervalDays.ValueInt
+                - (int)(barTime.Date - _state.LastRebalanceDate.Date).TotalDays;
+
+            if (left < 0)
             {
-                return "Плановая: еженедельно, с " + _scheduleDay.ValueInt + "-го дня недели";
+                left = 0;
             }
 
-            return "Плановая: ежемесячно, с " + _scheduleDay.ValueInt + "-го числа";
+            return "Плановая через " + left + " дн.";
         }
 
         private void LogDecision(List<KorovinAsset> assets, decimal equity, decimal cash,
@@ -6377,8 +6134,7 @@ namespace OsEngine.Robots.MyRobots
             string loadText = ". Загрузка: " + Math.Round(_ladder.KApplied, 3)
                 + " (цель " + Math.Round(_ladder.KTarget, 3)
                 + " = глубина " + Math.Round(_ladder.KDepth, 3)
-                + " + скорость " + Math.Round(_ladder.KSpeed, 3)
-                + " - перегрев " + Math.Round(_ladder.KEuphoria, 3) + ")"
+                + " + скорость " + Math.Round(_ladder.KSpeed, 3) + ")"
                 + ", резерв " + Math.Round(_lastReserveUp, 1) + " п.п.";
 
             string message = "Ребалансировка " + barTime.ToString("dd.MM.yyyy HH:mm", CultureInfo.InvariantCulture)
