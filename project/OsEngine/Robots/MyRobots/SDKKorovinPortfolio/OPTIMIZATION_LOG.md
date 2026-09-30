@@ -1221,3 +1221,32 @@ B строго лучше прежней конфигурации: прибыл�
 ### Текущий результат
 
 **21 654 078 (×10,8 от 2 млн), просадка по логу 20,3 %, 598 сделок, 178 ребалансировок.**
+
+---
+
+## Чистка параметров после выхода на реальный счёт (30.09.2026)
+
+Алгоритм зафиксирован, поэтому параметры, которые меняли бы сам механизм, убраны из настроек.
+Поведение робота на боевом наборе не изменилось.
+
+**Удалены вместе с функционалом** — выключенные или закреплённые ветки: `Schedule`
+и `Schedule day` (остался только интервал), `Reserve order` (сначала кэш, потом золото),
+`Trade to` (всегда до цели), `Index dividend adjust` и `Dividend gap neutral` (всегда включены),
+`Idio guard` (стоп-лист всегда включён), `Stock tilt`, `Tilt lookback`, `Tilt strength`,
+`Tilt min`, `Tilt max` (равные веса), `Freeze near record date`, `Freeze days`,
+`Euphoria weight`, `Euphoria dev start / full percent`, `Stocks min percent` (механизма
+перегрева нет).
+
+**Переведены в константы** со значениями боевого набора: `Long sma period` → `IndexHistoryDays`
+= 200, `Depth curve` → `DepthCurve` = 1, `Min k step` → `MinKStep` = 0,05, `Hysteresis` →
+`ReentryHysteresisPercent` = 2, `Stale days` → `StaleDays` = 120, `Stale action` →
+`StaleLowersLevel` = true, `Speed start / full percent` → 5 / 15, `Speed weight` → 0,15,
+`Speed window` → 5, `Speed hold days` → 10, `Ladder min days` → `LadderMinDays` = 1,
+`Hard band mult` → `HardBandMult` = 2, `Dividend hold days` → `DividendHoldDays` = 90.
+
+**Выбираются по типу запуска** вместо настройки: `Reopen mode` (тестер и оптимизатор — On,
+реал — Off) и `Portfolio value mode` (прежнее поведение `Auto`). Прогоны выше шли с `Reopen` = On,
+то есть ровно так, как робот теперь делает сам.
+
+Результаты выше получены до чистки и упоминают эти параметры как настраиваемые — это история
+подбора, а не описание текущих настроек. Актуальный список — `SDKKorovinPortfolio.md`.
