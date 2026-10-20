@@ -4060,9 +4060,12 @@ namespace OsEngine.Robots.MyRobots
             // сюда завтра, поэтому здесь продажи не финансируют покупки
             bool cashReserveOnly = reason == "CashReserve" && reopen == false;
 
+            // денег поднимается с запасом: исполнение вычтет Cash buffer percent из кэша,
+            // а цена и комиссия успеют сдвинуться. Без запаса план всегда оказывался больше
+            // денег и терял лот при урезании, см. GetFundingForPlan
             decimal moneyFromLqdt = cashReserveOnly
                 ? 0
-                : needBuy - cash - sellsMoney;
+                : GetFundingForPlan(needBuy) - cash - sellsMoney;
 
             decimal lqdtSent = 0;
 
@@ -4804,13 +4807,32 @@ namespace OsEngine.Robots.MyRobots
                     + ". План урезан целыми лотами, остаток добирается следующей ребалансировкой");
             }
 
-            TrimPlanByLots(targets, moneyList, cashForPlan);
+            // План в деньгах выровнен по лотам по цене момента планирования, а исполняется
+            // секунды спустя по другой цене. Переводим его в лоты один раз, по текущей цене
+            // заявки, и дальше считаем только в лотах. Раньше деньги делились на цену дважды -
+            // при урезании и при расчёте объёма, - и оба раза с округлением вниз: план ровно
+            // на 8 лотов при цене выше на один шаг давал 7,99 и превращался в 7 лотов, а
+            // урезание на копейки снимало ещё один. На боевом счёте так вместо 8 лотов MOEX
+            // ушло 6, а недокупленное тем же баром вернулось в LQDT
+            List<decimal> lotMoney = new List<decimal>();
+            List<decimal> lots = new List<decimal>();
 
             for (int i = 0; i < targets.Count; i++)
             {
-                decimal money = moneyList[i];
+                decimal oneLot = GetMinBuyMoney(targets[i]);
 
-                if (money < _minTradeMoney.ValueDecimal)
+                lotMoney.Add(oneLot);
+                lots.Add(PlanMoneyToLots(moneyList[i], oneLot));
+            }
+
+            TrimLotsToCash(lots, lotMoney, cashForPlan);
+
+            for (int i = 0; i < targets.Count; i++)
+            {
+                decimal money = lots[i] * lotMoney[i];
+
+                if (lots[i] <= 0
+                    || money < _minTradeMoney.ValueDecimal)
                 {
                     continue;
                 }
@@ -4820,12 +4842,12 @@ namespace OsEngine.Robots.MyRobots
                 // в свободные деньги и уйдёт в парковку следующей ребалансировкой
                 decimal buyPrice = GetOrderPrice(targets[i], true);
 
-                decimal volume = CalculateVolume(targets[i], money, buyPrice);
-
-                if (volume <= 0)
+                if (buyPrice <= 0)
                 {
                     continue;
                 }
+
+                decimal volume = lots[i] * GetVolumeStep(targets[i]);
 
                 volume = LimitVolumeByDepth(targets[i], volume, true);
 
@@ -4843,7 +4865,27 @@ namespace OsEngine.Robots.MyRobots
         }
 
         /// <summary>
-        /// Уложить план покупок в доступные деньги, убирая по одному лоту.
+        /// Сколько лотов означает сумма плана при текущей стоимости лота.
+        ///
+        /// Сумма плана - это целое число лотов по цене момента планирования. Цена к исполнению
+        /// сдвигается на шаг-другой, и частное выходит 7,99 или 8,01 вместо 8. Округление
+        /// вниз теряло бы лот на любом росте цены, поэтому округляем к ближайшему: план
+        /// означает «восемь лотов», а не «не больше стольких-то рублей». Хватит ли на них
+        /// денег, решает следующий шаг - TrimLotsToCash
+        /// </summary>
+        public static decimal PlanMoneyToLots(decimal planMoney, decimal lotMoney)
+        {
+            if (planMoney <= 0
+                || lotMoney <= 0)
+            {
+                return 0;
+            }
+
+            return Math.Round(planMoney / lotMoney, MidpointRounding.AwayFromZero);
+        }
+
+        /// <summary>
+        /// Уложить план покупок в доступные деньги, убирая лоты начиная с самого дешёвого.
         ///
         /// Раньше при нехватке денег план ужимался пропорционально - каждая сумма умножалась
         /// на одну и ту же долю. Для плана, выровненного по лотам, это худшее из возможных
@@ -4855,63 +4897,63 @@ namespace OsEngine.Robots.MyRobots
         /// в 86 раз больше самой нехватки. Недоизрасходованные деньги ушли обратно в LQDT,
         /// откуда только что были подняты.
         ///
-        /// Убираем лоты по одному, начиная с самого дешёвого. Дешёвый лот - это самая мелкая
-        /// доступная ступень, поэтому нехватка закрывается с минимальным перебором: те же
-        /// 302 рубля снимаются с золота, у которого лот стоит около трёх рублей
+        /// Дешёвый лот - самая мелкая доступная ступень, поэтому нехватка закрывается
+        /// с минимальным перебором: те же 302 рубля снимаются с золота, у которого лот стоит
+        /// около трёх рублей. С самой дешёвой бумаги снимается ровно столько лотов, сколько
+        /// нужно, и только если их не хватило - со следующей по цене
         /// </summary>
-        private void TrimPlanByLots(List<KorovinAsset> targets, List<decimal> moneyList,
-            decimal cashForPlan)
+        public static void TrimLotsToCash(List<decimal> lots, List<decimal> lotMoney, decimal cash)
         {
-            decimal sum = 0;
-
-            for (int i = 0; i < moneyList.Count; i++)
-            {
-                sum += moneyList[i];
-            }
-
-            if (sum <= cashForPlan)
+            if (lots == null
+                || lotMoney == null
+                || lots.Count != lotMoney.Count)
             {
                 return;
             }
 
-            // стоимость лота считается один раз: внутри цикла она не меняется, а обращение
-            // к стакану на каждом шаге стоило бы дорого
-            List<decimal> lotMoney = new List<decimal>();
+            decimal sum = 0;
 
-            for (int i = 0; i < targets.Count; i++)
+            for (int i = 0; i < lots.Count; i++)
             {
-                lotMoney.Add(GetMinBuyMoney(targets[i]));
+                sum += lots[i] * lotMoney[i];
             }
 
-            // потолок шагов - страховка от зацикливания на неожиданных данных, а не рабочее
-            // ограничение: обычная нехватка закрывается единицами шагов
-            for (int step = 0; step < 100000 && sum > cashForPlan; step++)
+            // каждый проход опустошает одну бумагу или закрывает нехватку целиком,
+            // поэтому проходов не больше, чем бумаг
+            for (int pass = 0; pass < lots.Count && sum > cash; pass++)
             {
-                int best = -1;
+                int cheapest = -1;
 
-                for (int i = 0; i < targets.Count; i++)
+                for (int i = 0; i < lots.Count; i++)
                 {
                     if (lotMoney[i] <= 0
-                        || moneyList[i] < lotMoney[i])
+                        || lots[i] <= 0)
                     {
                         continue;
                     }
 
-                    if (best == -1
-                        || lotMoney[i] < lotMoney[best])
+                    if (cheapest == -1
+                        || lotMoney[i] < lotMoney[cheapest])
                     {
-                        best = i;
+                        cheapest = i;
                     }
                 }
 
-                if (best == -1)
+                if (cheapest == -1)
                 {
-                    // убирать больше нечего: по всем бумагам меньше лота
-                    break;
+                    // убирать больше нечего
+                    return;
                 }
 
-                moneyList[best] = moneyList[best] - lotMoney[best];
-                sum = sum - lotMoney[best];
+                decimal remove = Math.Ceiling((sum - cash) / lotMoney[cheapest]);
+
+                if (remove > lots[cheapest])
+                {
+                    remove = lots[cheapest];
+                }
+
+                lots[cheapest] = lots[cheapest] - remove;
+                sum = sum - remove * lotMoney[cheapest];
             }
         }
 
@@ -5333,6 +5375,40 @@ namespace OsEngine.Robots.MyRobots
         }
 
         /// <summary>
+        /// Сколько денег должно быть на счёте под план покупок.
+        ///
+        /// Нужна при продаже денежной позиции под покупки. Пока LQDT продавался ровно
+        /// на недостающую сумму, план всегда оказывался больше денег, и урезание снимало
+        /// лот на каждой ребалансировке, где покупки финансировались из LQDT, - а его деньги
+        /// парковка тем же баром возвращала в LQDT. Не хватало двух вещей:
+        ///
+        /// - запаса ApplyCashBuffer: исполнение вычитает его из кэша перед покупками;
+        /// - сдвига между планом и исполнением: цена заявки к исполнению уходит на шаг-другой,
+        ///   а брокер списывает комиссию с выручки. На боевом счёте это 4 рубля на 12 590
+        ///   и 154 на 79 684 - мелочь, но урезание снимает за неё целый лот.
+        ///
+        /// Под второе берётся ещё один запас того же размера. Лишнее не теряется: остаётся
+        /// на счёте и уходит в денежную позицию следующей парковкой
+        /// </summary>
+        private decimal GetFundingForPlan(decimal planMoney)
+        {
+            if (planMoney <= 0)
+            {
+                return 0;
+            }
+
+            decimal buffer = _cashBufferPercent.ValueDecimal / 100m;
+            decimal share = 1m - buffer;
+
+            if (share <= 0)
+            {
+                return planMoney;
+            }
+
+            return planMoney * (1m + buffer) / share;
+        }
+
+        /// <summary>
         /// Во сколько обойдётся минимальная покупка - один лот, а для инструментов с дробным
         /// объёмом минимальный шаг объёма.
         ///
@@ -5363,7 +5439,16 @@ namespace OsEngine.Robots.MyRobots
                 return 0;
             }
 
-            int decimals = asset.Tab == null || asset.Tab.Security == null
+            return GetVolumeStep(asset) * price * asset.Lot;
+        }
+
+        /// <summary>
+        /// Минимальный шаг объёма заявки: у акций MOEX целый лот, у инструментов с дробным
+        /// объёмом - соответствующая доля
+        /// </summary>
+        private decimal GetVolumeStep(KorovinAsset asset)
+        {
+            int decimals = asset == null || asset.Tab == null || asset.Tab.Security == null
                 ? 0
                 : asset.Tab.Security.DecimalsVolume;
 
@@ -5379,7 +5464,7 @@ namespace OsEngine.Robots.MyRobots
                 step = step / 10m;
             }
 
-            return step * price * asset.Lot;
+            return step;
         }
 
         /// <summary>
