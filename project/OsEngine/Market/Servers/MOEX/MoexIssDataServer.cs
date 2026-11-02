@@ -11,6 +11,7 @@ using RestSharp;
 using System;
 using System.Collections.Generic;
 using System.Net;
+using System.Threading;
 using System.Windows;
 
 namespace OsEngine.Market.Servers.MOEX
@@ -748,6 +749,11 @@ namespace OsEngine.Market.Servers.MOEX
                 candles = ConcateCandles(sourseCandle, 1440, minutesInTf);
             }
 
+            if (candles == null)
+            {
+                return null;
+            }
+
             Candle previousCandle = new Candle();
 
             for (int i = 0; i < candles.Count; i++)
@@ -782,6 +788,11 @@ namespace OsEngine.Market.Servers.MOEX
 
         private List<Candle> ConcateCandles(List<Candle> candlesOld, int startTf, int endTf)
         {
+            if (candlesOld == null)
+            {
+                return null;
+            }
+
             if (startTf == endTf)
             {
                 return candlesOld;
@@ -896,10 +907,19 @@ namespace OsEngine.Market.Servers.MOEX
             while (lastTime < endTime)
             {
                 List<Candle> curCandles = Get500LastCandles(security, startTime, startCandle, minutesCount);
+
+                if (curCandles == null)
+                {
+                    // ISS не ответил даже после повторов. Обрезанную историю не отдаём:
+                    // OsData сохранил бы её как полностью загруженный кусок
+                    SendLogMessage("Candles loading aborted. ISS request failed. Sec: " + security.Name +
+                        ", from: " + startTime.ToShortDateString() + ", start candle: " + startCandle, LogMessageType.Error);
+                    return null;
+                }
+
                 startCandle += 500;
 
-                if (curCandles == null ||
-                    curCandles.Count == 0)
+                if (curCandles.Count == 0)
                 {
                     break;
                 }
@@ -948,18 +968,73 @@ namespace OsEngine.Market.Servers.MOEX
             str += "&start=";
             str += startCandle;
 
-            string response = GetRequest(str);
-
-            if (string.IsNullOrEmpty(response))
+            for (int attempt = 1; attempt <= _candlesRequestTries; attempt++)
             {
+                List<Candle> result = TryGet500Candles(str);
+
+                if (result != null)
+                {
+                    return result;
+                }
+
+                SendLogMessage("Candles request failed. Attempt " + attempt + " of " + _candlesRequestTries +
+                    ". Url: " + str, LogMessageType.System);
+
+                if (attempt < _candlesRequestTries)
+                {
+                    Thread.Sleep(attempt * 2000);
+                }
+            }
+
+            return null;
+
+            // ТФ которые есть: 1 минута, 10 минут, 60 минут
+            // за раз 500 свечек
+
+            // "https://iss.moex.com/iss/engines/stock/markets/shares/boards/TQBR/securities/SBER/candles.json?from=2014-01-01&interval=60&start=0";
+            //  https://iss.moex.com/iss/engines/stock/markets/shares/boards/TQBR/securities/LKOH/candles.json?from=2014-04-01-&interval=1&start=500
+        }
+
+        private int _candlesRequestTries = 5;
+
+        /// <summary>
+        /// Одна страница свечей. null — сбой запроса (стоит повторить),
+        /// пустой список — у ISS больше нет данных
+        /// </summary>
+        private List<Candle> TryGet500Candles(string url)
+        {
+            JArray dataArray;
+
+            try
+            {
+                RestRequest requestRest = new RestRequest(Method.GET);
+                RestClient client = new RestClient(url);
+                IRestResponse response = client.Execute(requestRest);
+
+                if (response.StatusCode != HttpStatusCode.OK
+                    || string.IsNullOrEmpty(response.Content))
+                {
+                    SendLogMessage("Candles request error. Status: " + response.StatusCode + " " + response.ErrorMessage, LogMessageType.System);
+                    return null;
+                }
+
+                JObject json = JObject.Parse(response.Content);
+
+                dataArray = json["candles"]?["data"] as JArray;
+
+                if (dataArray == null)
+                {
+                    SendLogMessage("Candles request error. No candles section in response", LogMessageType.System);
+                    return null;
+                }
+            }
+            catch (Exception error)
+            {
+                SendLogMessage("Candles request error. " + error.Message, LogMessageType.System);
                 return null;
             }
 
             List<Candle> result = new List<Candle>();
-
-            JObject json = JObject.Parse(response);
-
-            JArray dataArray = (JArray)json["candles"]["data"];
 
             int timeShift = GetTimeShiftHours();
 
@@ -979,12 +1054,6 @@ namespace OsEngine.Market.Servers.MOEX
             }
 
             return result;
-
-            // ТФ которые есть: 1 минута, 10 минут, 60 минут
-            // за раз 500 свечек
-
-            // "https://iss.moex.com/iss/engines/stock/markets/shares/boards/TQBR/securities/SBER/candles.json?from=2014-01-01&interval=60&start=0";
-            //  https://iss.moex.com/iss/engines/stock/markets/shares/boards/TQBR/securities/LKOH/candles.json?from=2014-04-01-&interval=1&start=500
         }
 
         #endregion
