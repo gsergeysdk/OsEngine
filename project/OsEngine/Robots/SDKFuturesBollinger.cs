@@ -34,6 +34,11 @@ Bollinger
 Выход из позиции
 Пересечение обратной стороны канала боллинджера
 
+Стоп (по умолчанию выключен)
+Stop loss by reverse line - стоп-маркет по уровню выхода (обратная сторона канала с учётом K), ставится один раз при входе
+Trailing stop by reverse line - каждую свечу стоп подтягивается к уровню выхода, только в сторону позиции
+Trailing stop in loss zone - подтягивать стоп, даже пока уровень выхода хуже цены входа. Без него трейлинг начинается с безубытка
+
 Фильтр на вход. Рэнкинг раздвижек
 Считаем по каждому инструменту раздвижку в %. И делим ренкинг на 2 части. Самые дальние и самые ближние.
 Самые дальние - можно только шорт. Их и так спекулянты перекупили
@@ -93,6 +98,9 @@ namespace OsEngine.Robots.SDKRobots
 
         private StrategyParameterDecimal _closeAtExpirationDays;
         private StrategyParameterDecimal _closeByReverseLineK;
+        private StrategyParameterBool _stopByReverseLine;
+        private StrategyParameterBool _trailingStop;
+        private StrategyParameterBool _trailingStopInLoss;
 
         private StrategyParameterString _contangoFilterRegime;
         private StrategyParameterInt _contangoFilterCountSecurities;
@@ -185,6 +193,7 @@ namespace OsEngine.Robots.SDKRobots
 
         // Auto connection securities
 
+        private StrategyParameterString _deployConnector;
         private StrategyParameterString _portfolioNum;
         private StrategyParameterString _testerDeployTimeFrame;
 
@@ -224,6 +233,9 @@ namespace OsEngine.Robots.SDKRobots
 
             _closeAtExpirationDays = CreateParameter("Close before expiration days", 3.1m, 1, 4, 0.1m, "Base");
             _closeByReverseLineK = CreateParameter("Close level from center to reverse line K", 1m, 0m, 1m, 0.1m, "Base");
+            _stopByReverseLine = CreateParameter("Stop loss by reverse line", false, "Base");
+            _trailingStop = CreateParameter("Trailing stop by reverse line", false, "Base");
+            _trailingStopInLoss = CreateParameter("Trailing stop in loss zone", false, "Base");
 
             // GetVolume settings
             _volumeType = CreateParameter("Volume type", "Deposit percent", new[] { "Contracts", "Contract currency", "Deposit percent" }, "Base");
@@ -264,6 +276,7 @@ namespace OsEngine.Robots.SDKRobots
 
             if(startProgram == StartProgram.IsOsTrader)
             {
+                _deployConnector = CreateParameter("Deploy connector", "TInvest", new[] { "TInvest", "Transaq" }, "Auto deploy");
                 _portfolioNum = CreateParameter("Portfolio number", "", "Auto deploy");
                 StrategyParameterButton buttonAutoDeploy = CreateParameterButton("Deploy standard securities", "Auto deploy");
                 buttonAutoDeploy.UserClickOnButtonEvent += ButtonAutoDeploy_UserClickOnButtonEvent;
@@ -339,6 +352,13 @@ namespace OsEngine.Robots.SDKRobots
             _futs10 = TabCreate<BotTabScreener>();
             _futs10.CandleFinishedEvent += _futs10_CandleFinishedEvent;
             CreateIndicators(_base10, _futs10);
+
+            BotTabScreener[] futuresScreeners = { _futs1, _futs2, _futs3, _futs4, _futs5, _futs6, _futs7, _futs8, _futs9, _futs10 };
+
+            for (int i = 0; i < futuresScreeners.Length; i++)
+            {
+                futuresScreeners[i].PositionOpeningSuccesEvent += Futures_PositionOpeningSuccesEvent;
+            }
 
             ParametrsChangeByUser += FuturesStartContangoScreener_ParametrsChangeByUser;
 
@@ -844,9 +864,7 @@ namespace OsEngine.Robots.SDKRobots
 
             bool needToExit = false;
 
-            int indexLine = pos.Direction == Side.Buy ? 1 : 0;
-            decimal closeLevel = futuresBollinger.DataSeries[2].Last +
-                _closeByReverseLineK * (futuresBollinger.DataSeries[indexLine].Last - futuresBollinger.DataSeries[2].Last);
+            decimal closeLevel = GetCloseLevel(futuresBollinger, pos.Direction);
 
             if (pos.Direction == Side.Buy && futuresLastPrice < closeLevel)
             {
@@ -868,7 +886,96 @@ namespace OsEngine.Robots.SDKRobots
             if (needToExit == true)
             {
                 futuresSource.CloseAtIcebergMarket(pos, pos.OpenVolume, _icebergCount.ValueInt, 1000);
+                return;
             }
+
+            TrySetStopByReverseLine(futuresSource, pos, closeLevel);
+        }
+
+        // Уровень выхода: от центра канала к обратной линии с коэффициентом K. K = 1 - сама обратная линия
+        private decimal GetCloseLevel(Aindicator bollinger, Side direction)
+        {
+            int indexLine = direction == Side.Buy ? 1 : 0;
+
+            return bollinger.DataSeries[2].Last +
+                _closeByReverseLineK.ValueDecimal * (bollinger.DataSeries[indexLine].Last - bollinger.DataSeries[2].Last);
+        }
+
+        private void Futures_PositionOpeningSuccesEvent(Position pos, BotTabSimple futuresSource)
+        {
+            try
+            {
+                if (_stopByReverseLine.ValueBool == false
+                    && _trailingStop.ValueBool == false)
+                {
+                    return;
+                }
+
+                if (futuresSource.Indicators == null
+                    || futuresSource.Indicators.Count == 0)
+                {
+                    return;
+                }
+
+                Aindicator futuresBollinger = (Aindicator)futuresSource.Indicators[0];
+
+                if (futuresBollinger.DataSeries[0].Last == 0)
+                {
+                    return;
+                }
+
+                TrySetStopByReverseLine(futuresSource, pos, GetCloseLevel(futuresBollinger, pos.Direction));
+            }
+            catch (Exception ex)
+            {
+                SendNewLogMessage(ex.ToString(), LogMessageType.Error);
+            }
+        }
+
+        private void TrySetStopByReverseLine(BotTabSimple futuresSource, Position pos, decimal stopLevel)
+        {
+            if (_stopByReverseLine.ValueBool == false
+                && _trailingStop.ValueBool == false)
+            {
+                return;
+            }
+
+            if (pos.State != PositionStateType.Open
+                || stopLevel <= 0)
+            {// пока позиция закрывается, стоп не трогаем, чтобы не закрыть её второй раз
+                return;
+            }
+
+            // 1 стоп по обратной стороне канала. Ставится один раз, дальше двигает только трейлинг
+
+            if (_stopByReverseLine.ValueBool == true
+                && pos.StopOrderIsActive == false)
+            {
+                futuresSource.CloseAtStopMarket(pos, stopLevel, "StopByReverseLine");
+                return;
+            }
+
+            // 2 трейлинг. Стоп двигается только в сторону позиции
+
+            if (_trailingStop.ValueBool == false)
+            {
+                return;
+            }
+
+            if (_trailingStopInLoss.ValueBool == false)
+            {// без разрешения на убыточную зону трейлинг начинается, когда уровень выхода дошёл до цены входа
+                if (pos.Direction == Side.Buy && stopLevel < pos.EntryPrice)
+                {
+                    return;
+                }
+
+                if (pos.Direction == Side.Sell && stopLevel > pos.EntryPrice)
+                {
+                    return;
+                }
+            }
+
+            futuresSource.CloseAtTrailingStopMarket(pos, stopLevel, "TrailingStopByReverseLine");
         }
 
         #endregion
@@ -1151,7 +1258,7 @@ namespace OsEngine.Robots.SDKRobots
 
         #endregion
 
-        #region Auto-set securities to T-Investment
+        #region Auto-set securities to T-Investment / Transaq
 
         private void ButtonAutoDeploy_UserClickOnButtonEvent()
         {
@@ -1160,9 +1267,28 @@ namespace OsEngine.Robots.SDKRobots
 
         public void SetTSecurities()
         {
+            // коннектор для развёртывания: Т-Инвестиции или Transaq
+
+            ServerType serverType = ServerType.TInvest;
+            string connectorNameEng = "T-Invest";
+            string connectorNameRu = "Т-Инвестиции";
+
+            // у Transaq тип бумаги определяем по классу (борду): акции TQBR, фьючерсы FUT
+            Predicate<Security> isStock = s => s.SecurityType == SecurityType.Stock;
+            Predicate<Security> isFutures = s => s.SecurityType == SecurityType.Futures;
+
+            if (_deployConnector.ValueString == "Transaq")
+            {
+                serverType = ServerType.Transaq;
+                connectorNameEng = "Transaq";
+                connectorNameRu = "Transaq";
+                isStock = s => s.NameClass == "TQBR";
+                isFutures = s => s.NameClass == "FUT";
+            }
+
             AcceptDialogUi ui = new AcceptDialogUi(OsLocalization.ConvertToLocString(
-                "Eng:Auto deploy will set the standard securities. 10 pairs of MOEX stock and futures via the T-Invest connector will be assigned to the sources. Current sources settings will be overwritten. Continue_" +
-                "Ru:Авто-развёртывание установит стандартные бумаги. В источники будут прописаны 10 пар акция плюс фьючерсы MOEX через коннектор Т-Инвестиции. Текущие настройки источников будут перезаписаны. Продолжить_"));
+                "Eng:Auto deploy will set the standard securities. 10 pairs of MOEX stock and futures via the " + connectorNameEng + " connector will be assigned to the sources. Current sources settings will be overwritten. Continue_" +
+                "Ru:Авто-развёртывание установит стандартные бумаги. В источники будут прописаны 10 пар акция плюс фьючерсы MOEX через коннектор " + connectorNameRu + ". Текущие настройки источников будут перезаписаны. Продолжить_"));
 
             ui.ShowDialog();
 
@@ -1171,20 +1297,20 @@ namespace OsEngine.Robots.SDKRobots
                 return;
             }
 
-            // 1 сервер Т-Банк должен быть включен
+            // 1 сервер выбранного коннектора должен быть включен
 
             List<AServer> servers = ServerMaster.GetAServers();
 
             if(servers == null
                 || servers.Count == 0)
             {
-                SendNewLogMessage("Сначала подключите коннектор к Т-Инвестиции",Logging.LogMessageType.Error);
+                SendNewLogMessage("Сначала подключите коннектор " + connectorNameRu, Logging.LogMessageType.Error);
                 return;
             }
 
-            if(servers.Find(s => s.ServerType == ServerType.TInvest) == null)
+            if(servers.Find(s => s.ServerType == serverType) == null)
             {
-                SendNewLogMessage("Сначала подключите коннектор к Т-Инвестиции", Logging.LogMessageType.Error);
+                SendNewLogMessage("Сначала подключите коннектор " + connectorNameRu, Logging.LogMessageType.Error);
                 return;
             }
 
@@ -1208,7 +1334,7 @@ namespace OsEngine.Robots.SDKRobots
 
             for(int i = 0;i < servers.Count;i++)
             {
-                if (servers[i].ServerType != ServerType.TInvest)
+                if (servers[i].ServerType != serverType)
                 {
                     continue;
                 }
@@ -1240,8 +1366,8 @@ namespace OsEngine.Robots.SDKRobots
             if(myServer == null)
             {
                 CustomMessageBoxUi uiInfo = new CustomMessageBoxUi(OsLocalization.ConvertToLocString(
-                    "Eng:Portfolio not found. Check the portfolio number and the T-Invest connector_" +
-                    "Ru:Портфель не найден. Проверьте номер портфеля и коннектор Т-Инвестиции_"));
+                    "Eng:Portfolio not found. Check the portfolio number and the " + connectorNameEng + " connector_" +
+                    "Ru:Портфель не найден. Проверьте номер портфеля и коннектор " + connectorNameRu + "_"));
                 uiInfo.ShowDialog();
 
                 SendNewLogMessage("Не найден портфель и сервер. Возможно указан не верный портфель", Logging.LogMessageType.Error);
@@ -1259,13 +1385,13 @@ namespace OsEngine.Robots.SDKRobots
                 return;
             }
 
-            if(securitiesAll.Find(s => s.SecurityType == SecurityType.Futures) == null)
+            if(securitiesAll.Find(s => isFutures(s)) == null)
             {
                 SendNewLogMessage("В коннекторе не найдены фьючерсы. Возможно в коннекторе выключено разрешение на их скачивание. Это настраивается в коннекторе", Logging.LogMessageType.Error);
                 return;
             }
 
-            if (securitiesAll.Find(s => s.SecurityType == SecurityType.Stock) == null)
+            if (securitiesAll.Find(s => isStock(s)) == null)
             {
                 SendNewLogMessage("В коннекторе не найдены акции. Возможно в коннекторе выключено разрешение на их скачивание. Это настраивается в коннекторе", Logging.LogMessageType.Error);
                 return;
@@ -1273,81 +1399,81 @@ namespace OsEngine.Robots.SDKRobots
 
             // 4 устанавливаем инструменты
 
-            Security spotSber = securitiesAll.Find(s => s.Name == "SBER" && s.SecurityType == SecurityType.Stock);
+            Security spotSber = securitiesAll.Find(s => s.Name == "SBER" && isStock(s));
             List<Security> futuresSber = 
-                securitiesAll.FindAll(s => s.SecurityType == SecurityType.Futures &&
+                securitiesAll.FindAll(s => isFutures(s) &&
                 (s.Name.StartsWith("SRH") || s.Name.StartsWith("SRM")
                 || s.Name.StartsWith("SRZ") || s.Name.StartsWith("SRU")));
 
             SetSecurities(_base1, _futs1, spotSber, futuresSber, myPortfolio, myServer);
 
-            Security spotSberPref = securitiesAll.Find(s => s.Name == "SBERP" && s.SecurityType == SecurityType.Stock);
+            Security spotSberPref = securitiesAll.Find(s => s.Name == "SBERP" && isStock(s));
             List<Security> futuresSberPref =
-                securitiesAll.FindAll(s => s.SecurityType == SecurityType.Futures &&
+                securitiesAll.FindAll(s => isFutures(s) &&
                 (s.Name.StartsWith("SPH") || s.Name.StartsWith("SPM")
                 || s.Name.StartsWith("SPZ") || s.Name.StartsWith("SPU")));
 
             SetSecurities(_base2, _futs2, spotSberPref, futuresSberPref, myPortfolio, myServer);
 
-            Security spotGazp = securitiesAll.Find(s => s.Name == "GAZP" && s.SecurityType == SecurityType.Stock);
+            Security spotGazp = securitiesAll.Find(s => s.Name == "GAZP" && isStock(s));
             List<Security> futuresGazp =
-                securitiesAll.FindAll(s => s.SecurityType == SecurityType.Futures &&
+                securitiesAll.FindAll(s => isFutures(s) &&
                 (s.Name.StartsWith("GZH") || s.Name.StartsWith("GZM")
                 || s.Name.StartsWith("GZZ") || s.Name.StartsWith("GZU")));
 
             SetSecurities(_base3, _futs3, spotGazp, futuresGazp, myPortfolio, myServer);
 
-            Security spotRosn = securitiesAll.Find(s => s.Name == "ROSN" && s.SecurityType == SecurityType.Stock);
+            Security spotRosn = securitiesAll.Find(s => s.Name == "ROSN" && isStock(s));
             List<Security> futuresRosn =
-                securitiesAll.FindAll(s => s.SecurityType == SecurityType.Futures &&
+                securitiesAll.FindAll(s => isFutures(s) &&
                 (s.Name.StartsWith("RNH") || s.Name.StartsWith("RNM")
                 || s.Name.StartsWith("RNZ") || s.Name.StartsWith("RNU")));
 
             SetSecurities(_base4, _futs4, spotRosn, futuresRosn, myPortfolio, myServer);
 
-            Security spotLkoh = securitiesAll.Find(s => s.Name == "LKOH" && s.SecurityType == SecurityType.Stock);
+            Security spotLkoh = securitiesAll.Find(s => s.Name == "LKOH" && isStock(s));
             List<Security> futuresLkoh =
-                securitiesAll.FindAll(s => s.SecurityType == SecurityType.Futures &&
+                securitiesAll.FindAll(s => isFutures(s) &&
                 (s.Name.StartsWith("LKH") || s.Name.StartsWith("LKM")
                 || s.Name.StartsWith("LKZ") || s.Name.StartsWith("LKU")));
 
             SetSecurities(_base5, _futs5, spotLkoh, futuresLkoh, myPortfolio, myServer);
 
-            Security spotVtb = securitiesAll.Find(s => s.Name == "VTBR" && s.SecurityType == SecurityType.Stock);
+            Security spotVtb = securitiesAll.Find(s => s.Name == "VTBR" && isStock(s));
             List<Security> futuresVtb =
-                securitiesAll.FindAll(s => s.SecurityType == SecurityType.Futures &&
+                securitiesAll.FindAll(s => isFutures(s) &&
                 (s.Name.StartsWith("VBH") || s.Name.StartsWith("VBM")
                 || s.Name.StartsWith("VBZ") || s.Name.StartsWith("VBU")));
 
             SetSecurities(_base6, _futs6, spotVtb, futuresVtb, myPortfolio, myServer);
 
-            Security spotNvtk = securitiesAll.Find(s => s.Name == "NVTK" && s.SecurityType == SecurityType.Stock);
+            Security spotNvtk = securitiesAll.Find(s => s.Name == "NVTK" && isStock(s));
             List<Security> futuresNvtk =
-                securitiesAll.FindAll(s => s.SecurityType == SecurityType.Futures &&
+                securitiesAll.FindAll(s => isFutures(s) &&
                 (s.Name.StartsWith("NVH") || s.Name.StartsWith("NVM")
                 || s.Name.StartsWith("NVZ") || s.Name.StartsWith("NVU")));
 
             SetSecurities(_base7, _futs7, spotNvtk, futuresNvtk, myPortfolio, myServer);
 
-            Security spotAlrs = securitiesAll.Find(s => s.Name == "ALRS" && s.SecurityType == SecurityType.Stock);
+            Security spotAlrs = securitiesAll.Find(s => s.Name == "ALRS" && isStock(s));
             List<Security> futuresAlrs =
-                securitiesAll.FindAll(s => s.SecurityType == SecurityType.Futures &&
+                securitiesAll.FindAll(s => isFutures(s) &&
                 (s.Name.StartsWith("ALH") || s.Name.StartsWith("ALM")
                 || s.Name.StartsWith("ALZ") || s.Name.StartsWith("ALU")));
 
             SetSecurities(_base8, _futs8, spotAlrs, futuresAlrs, myPortfolio, myServer);
 
-            Security spotAflt = securitiesAll.Find(s => s.Name == "AFLT" && s.SecurityType == SecurityType.Stock);
+            Security spotAflt = securitiesAll.Find(s => s.Name == "AFLT" && isStock(s));
             List<Security> futuresAflt =
-                securitiesAll.FindAll(s => s.SecurityType == SecurityType.Futures &&
+                securitiesAll.FindAll(s => isFutures(s) &&
                (s.Name.StartsWith("AFH") || s.Name.StartsWith("AFM")
                 || s.Name.StartsWith("AFZ") || s.Name.StartsWith("AFU")));
 
             SetSecurities(_base9, _futs9, spotAflt, futuresAflt, myPortfolio, myServer);
 
-            Security spotMgnt = securitiesAll.Find(s => s.Name == "MGNT" && s.SecurityType == SecurityType.Stock);
+            Security spotMgnt = securitiesAll.Find(s => s.Name == "MGNT" && isStock(s));
             List<Security> futuresMgnt =
-                securitiesAll.FindAll(s => s.SecurityType == SecurityType.Futures &&
+                securitiesAll.FindAll(s => isFutures(s) &&
                 (s.Name.StartsWith("MNH") || s.Name.StartsWith("MNM")
                 || s.Name.StartsWith("MNZ") || s.Name.StartsWith("MNU")));
 
@@ -1357,8 +1483,11 @@ namespace OsEngine.Robots.SDKRobots
         private void SetSecurities(BotTabSimple tabSpot, BotTabScreener tabFutures, 
             Security spotSecurity, List<Security> futuresSecurity, Portfolio portfolio, AServer server)
         {
-            if(spotSecurity == null || futuresSecurity == null)
+            if(spotSecurity == null
+                || futuresSecurity == null
+                || futuresSecurity.Count == 0)
             {
+                SendNewLogMessage("Не найдены акция или фьючерсы для источника " + tabSpot.TabName + ". Источник не изменён", Logging.LogMessageType.Error);
                 return;
             }
 
