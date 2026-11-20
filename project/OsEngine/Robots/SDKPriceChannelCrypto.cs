@@ -417,6 +417,12 @@ namespace OsEngine.Robots.SDKRobots
             {
                 _pending.Clear();
             }
+
+            // новый прогон тестера - готовность индикаторов проверяется заново
+            lock (_checkedTabsLocker)
+            {
+                _checkedTabs.Clear();
+            }
         }
 
         // Раз в столько проходов потока (секунд) - подбор лимиток без сопровождения и проверка стопов
@@ -595,8 +601,11 @@ namespace OsEngine.Robots.SDKRobots
 
                 // Индикаторы так и не стали готовы (бывает после смены параметров - редкая гонка
                 // при пересоздании индикаторов): инструмент молча не торгует - предупреждаем в логе
-                if (candles.Count == NotReadyCheckCandle
-                    && _regime.ValueString != "OnlyClosePosition")
+                // Только тестер и оптимизатор: проверка ловит гонку при пересоздании индикаторов во время прогонов
+                if (StartProgram != StartProgram.IsOsTrader
+                    && candles.Count >= NotReadyCheckCandle
+                    && _regime.ValueString != "OnlyClosePosition"
+                    && NeedReadyCheck(tab))
                 {
                     CheckTabReadyState(candles, tab);
                 }
@@ -629,11 +638,6 @@ namespace OsEngine.Robots.SDKRobots
                 }
 
                 List<Position> openPositions = tab.PositionsOpenAll;
-
-                if (openPositions.Count > 0)
-                {
-                    SetTabReady(tab);
-                }
 
                 if (openPositions.Count == 0)
                 {
@@ -708,8 +712,6 @@ namespace OsEngine.Robots.SDKRobots
             {
                 return;
             }
-
-            SetTabReady(tab);
 
             Side side;
 
@@ -998,38 +1000,63 @@ namespace OsEngine.Robots.SDKRobots
             EnsureStop(position, tab);
         }
 
-        // Свеча, к которой индикаторы любого инструмента должны быть готовы (с запасом больше самой длинной средней)
+        // Свечей, к которым индикаторы любого инструмента должны быть готовы (с запасом больше самой длинной средней)
         private const int NotReadyCheckCandle = 3000;
 
-        // Инструменты, по которым хотя бы раз дошли до проверки сигнала или есть позиция
-        private readonly HashSet<string> _readyTabs = new HashSet<string>();
+        // Инструменты, по которым проверка готовности уже была (один раз за запуск робота / прогон тестера):
+        // в реале история сразу загружается на NotReadyCheckCandle свечей и больше, а при ограниченной истории
+        // число свечей держится на одном уровне - проверка по "ровно N свечей" срабатывала бы каждую свечу
+        private readonly HashSet<string> _checkedTabs = new HashSet<string>();
 
-        private readonly object _readyTabsLocker = new object();
+        private readonly object _checkedTabsLocker = new object();
 
-        private void SetTabReady(BotTabSimple tab)
+        // true - проверку этого инструмента нужно сделать сейчас (первый раз)
+        private bool NeedReadyCheck(BotTabSimple tab)
         {
-            lock (_readyTabsLocker)
+            lock (_checkedTabsLocker)
             {
-                _readyTabs.Add(tab.Connector.SecurityName);
+                return _checkedTabs.Add(tab.Connector.SecurityName);
             }
         }
 
-        private bool IsTabReady(BotTabSimple tab)
+        // Индикаторы инструмента готовы: найдены, с параметрами робота, линии канала посчитаны и наклон Ssma
+        // хотя бы одной стороны определён
+        private bool IsIndicatorsReady(BotTabSimple tab)
         {
-            lock (_readyTabsLocker)
+            Aindicator pc = FindIndicator(tab, PcNum, "PriceChannel");
+            Aindicator pcShort = FindIndicator(tab, PcShortNum, "PriceChannel");
+            Aindicator longSsma = FindIndicator(tab, LongSsmaNum, "Ssma");
+            Aindicator shortSsma = FindIndicator(tab, ShortSsmaNum, "Ssma");
+
+            if (pc == null
+                || pcShort == null
+                || longSsma == null
+                || shortSsma == null
+                || CheckTradeIndicatorsParameters(pc, pcShort, longSsma, shortSsma) == false
+                || pc.DataSeries[0].Values.Count < 2
+                || pc.DataSeries[1].Values.Count < 2
+                || pcShort.DataSeries[1].Values.Count < 2
+                || pc.DataSeries[0].Values[^2] == 0
+                || pc.DataSeries[1].Values[^2] == 0
+                || pcShort.DataSeries[1].Values[^2] == 0)
             {
-                return _readyTabs.Contains(tab.Connector.SecurityName);
+                return false;
             }
+
+            bool longReady = GetTrend(longSsma, _longSsmaSlopeBars.ValueInt, _longSsmaSlopeMin.ValueDecimal, out _, out _);
+            bool shortReady = GetTrend(shortSsma, _shortSsmaSlopeBars.ValueInt, _shortSsmaSlopeMin.ValueDecimal, out _, out _);
+
+            return longReady || shortReady;
         }
 
         private readonly object _stateFileLocker = new object();
 
-        // Состояние вкладки на свече NotReadyCheckCandle. Строка по каждому инструменту сразу пишется в файл
+        // Состояние вкладки, когда свечей стало NotReadyCheckCandle. Строка по каждому инструменту сразу пишется в файл
         // Engine\Log\<имя робота>_TabsState.txt (лог OsEngine пишется с задержкой и удаляется вместе с роботом).
         // Не готовый инструмент дополнительно попадает в лог робота как INDICATORS NOT READY
         private void CheckTabReadyState(List<Candle> candles, BotTabSimple tab)
         {
-            bool ready = IsTabReady(tab);
+            bool ready = IsIndicatorsReady(tab);
             string state = BuildTabState(candles, tab);
 
             try
