@@ -1235,8 +1235,11 @@ namespace OsEngine.Entity
                         curOrdOpen.SetTrade(trade);
 
                         if (OpenVolume != 0 &&
-                            State == PositionStateType.Opening)
+                            (State == PositionStateType.Opening
+                            || State == PositionStateType.OpeningFail))
                         {
+                            // OpeningFail: ордер снят, а сделка по нему пришла позже статуса отмены
+                            // (биржа исполнила часть до отмены). Позиция с объёмом не может быть несостоявшейся
                             State = PositionStateType.Open;
                         }
                         else if (OpenVolume == 0 
