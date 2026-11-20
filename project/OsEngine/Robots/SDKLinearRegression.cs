@@ -160,7 +160,7 @@ namespace OsEngine.Robots.SDKRobots
         private string _lastRegime = BotTradeRegime.Off.ToString();
         private void TelegramCommandHandler(string botName, Command cmd)
         {
-            if (botName != null && !_screenerTab.TabName.Equals(botName))
+            if (botName != null && !NameStrategyUniq.Equals(botName))
                 return;
 
             if (cmd == Command.StopAllBots || cmd == Command.StopBot)

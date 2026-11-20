@@ -135,7 +135,7 @@ namespace OsEngine.Robots.MyBots
 
         private void TelegramCommandHandler(string botName, Command cmd)
         {
-            if (botName != null && !_tab1.TabName.Equals(botName))
+            if (botName != null && !NameStrategyUniq.Equals(botName))
                 return;
 
             if (cmd == Command.StopAllBots || cmd == Command.StopBot)

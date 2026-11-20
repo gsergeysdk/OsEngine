@@ -1,12 +1,16 @@
 ﻿using Newtonsoft.Json;
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Net;
 using System.Net.Http;
+using System.Text;
 using System.Threading;
+using OsEngine.Entity;
 using OsEngine.Market;
+using OsEngine.OsTrader.Panels;
 using System.Windows;
 
 namespace OsEngine.Logging
@@ -110,6 +114,7 @@ namespace OsEngine.Logging
                     {{""keyboard"": 
                     [
                         [{{""text"": ""StopAllBots""}}, {{""text"": ""StartAllBots""}}],
+                        [{{""text"": ""StopBot""}}, {{""text"": ""StartBot""}}],
                         [{{""text"": ""CancelAllActiveOrders""}}, {{""text"": ""GetStatus""}}]
                     ],
                     ""resize_keyboard"": true
@@ -238,7 +243,7 @@ namespace OsEngine.Logging
                     HttpResponseMessage response = _httpClient.GetAsync($"https://api.telegram.org/bot{BotToken}/getUpdates" +
                                                                         $"?offset={_lastUpdateId + 1}" +
                                                                         $"&timeout=2" +
-                                                                        $"&allowed_updates=[\"message\"]").Result;
+                                                                        $"&allowed_updates=[\"message\",\"callback_query\"]").Result;
 
                     string responseContent = response.Content.ReadAsStringAsync().Result;
 
@@ -254,6 +259,10 @@ namespace OsEngine.Logging
                         if (updates.result[i].message != null)
                         {
                             HandleCallbackQuery(updates.result[i].message);
+                        }
+                        else if (updates.result[i].callback_query != null)
+                        {
+                            HandleBotChoice(updates.result[i].callback_query);
                         }
 
                         _lastUpdateId = updates.result[i].update_id;
@@ -292,12 +301,204 @@ namespace OsEngine.Logging
                 case "StartAllBots":
                     ExecuteCommand(null, Command.StartAllBots);
                     break;
+                case "StopBot":
+                    SendBotChoiceMenu(Command.StopBot);
+                    break;
+                case "StartBot":
+                    SendBotChoiceMenu(Command.StartBot);
+                    break;
                 case "CancelAllActiveOrders":
                     ExecuteCommand(null, Command.CancelAllActiveOrders);
                     break;
                 case "GetStatus":
                     ExecuteCommand(null, Command.GetStatus);
                     break;
+            }
+        }
+
+        /// <summary>
+        /// Robot names of the last sent choice menu. The buttons carry an index into this array
+        /// - Имена роботов последнего отправленного меню выбора. Кнопки несут индекс в этом массиве
+        /// </summary>
+        private string[] _botMenuNames = new string[0];
+
+        /// <summary>
+        /// Number of the last sent choice menu. Buttons of older menus are rejected
+        /// - Номер последнего отправленного меню выбора. Кнопки старых меню отклоняются
+        /// </summary>
+        private int _botMenuId;
+
+        /// <summary>
+        /// Send inline menu to choose the robot for StopBot / StartBot
+        /// - Отправить встроенное меню выбора робота для StopBot / StartBot
+        /// </summary>
+        private void SendBotChoiceMenu(Command cmd)
+        {
+            try
+            {
+                List<BotPanel> bots = ServerMaster.GetAllBotsFromBotStation();
+
+                if (bots == null || bots.Count == 0)
+                {
+                    SendTelegramRequest("sendMessage", $"chat_id={ChatId}" +
+                        $"&text={Uri.EscapeDataString("Нет запущенных роботов")}");
+                    return;
+                }
+
+                BotPanel[] botsArray = bots.ToArray();
+                string[] names = new string[botsArray.Length];
+
+                StringBuilder keyboard = new StringBuilder();
+                keyboard.Append("{\"inline_keyboard\":[");
+
+                _botMenuId++;
+
+                for (int i = 0; i < botsArray.Length; i++)
+                {
+                    names[i] = botsArray[i].NameStrategyUniq;
+
+                    string buttonText = names[i];
+                    string regime = GetBotRegime(botsArray[i]);
+
+                    if (regime != null)
+                    {
+                        buttonText += " (" + regime + ")";
+                    }
+
+                    if (i > 0)
+                    {
+                        keyboard.Append(',');
+                    }
+
+                    keyboard.Append("[{\"text\":")
+                        .Append(JsonConvert.ToString(buttonText))
+                        .Append(",\"callback_data\":")
+                        .Append(JsonConvert.ToString(cmd + "|" + _botMenuId + "|" + i))
+                        .Append("}]");
+                }
+
+                keyboard.Append("]}");
+
+                _botMenuNames = names;
+
+                string text = cmd == Command.StopBot
+                    ? "Какого робота остановить?"
+                    : "Какого робота включить?";
+
+                SendTelegramRequest("sendMessage", $"chat_id={ChatId}" +
+                    $"&text={Uri.EscapeDataString(text)}" +
+                    $"&reply_markup={Uri.EscapeDataString(keyboard.ToString())}");
+            }
+            catch (Exception error)
+            {
+                ServerMaster.SendNewLogMessage(error.ToString(), LogMessageType.Error);
+            }
+        }
+
+        /// <summary>
+        /// Value of the robot parameter "Regime", if it exists
+        /// - Значение параметра робота "Regime", если он есть
+        /// </summary>
+        private string GetBotRegime(BotPanel bot)
+        {
+            try
+            {
+                List<IIStrategyParameter> parameters = bot.Parameters;
+
+                for (int i = 0; i < parameters.Count; i++)
+                {
+                    if (parameters[i].Name == "Regime"
+                        && parameters[i] is StrategyParameterString regime)
+                    {
+                        return regime.ValueString;
+                    }
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Handle pressing a robot button in the choice menu
+        /// - Обработка нажатия кнопки робота в меню выбора
+        /// </summary>
+        private void HandleBotChoice(Callback_Query query)
+        {
+            try
+            {
+                SendTelegramRequest("answerCallbackQuery", $"callback_query_id={Uri.EscapeDataString(query.id)}");
+
+                if (!ProcessingCommand
+                    || query.message == null
+                    || query.message.chat == null
+                    || query.message.chat.id != ChatId
+                    || string.IsNullOrEmpty(query.data))
+                {
+                    return;
+                }
+
+                string[] parts = query.data.Split('|');
+
+                if (parts.Length != 3
+                    || !Enum.TryParse(parts[0], out Command cmd)
+                    || (cmd != Command.StopBot && cmd != Command.StartBot)
+                    || !int.TryParse(parts[1], out int menuId)
+                    || !int.TryParse(parts[2], out int index))
+                {
+                    return;
+                }
+
+                string resultText;
+
+                if (menuId != _botMenuId
+                    || index < 0
+                    || index >= _botMenuNames.Length)
+                {
+                    resultText = "Меню устарело. Запросите список роботов заново";
+                }
+                else
+                {
+                    string botName = _botMenuNames[index];
+                    ExecuteCommand(botName, cmd);
+                    resultText = $"Команда {cmd} отправлена роботу {botName}";
+                }
+
+                // убираем кнопки, чтобы одно меню не срабатывало дважды
+                SendTelegramRequest("editMessageText", $"chat_id={ChatId}" +
+                    $"&message_id={query.message.message_id}" +
+                    $"&text={Uri.EscapeDataString(resultText)}");
+            }
+            catch (Exception error)
+            {
+                ServerMaster.SendNewLogMessage(error.ToString(), LogMessageType.Error);
+            }
+        }
+
+        /// <summary>
+        /// Call Telegram Bot API method
+        /// - Вызов метода Telegram Bot API
+        /// </summary>
+        private void SendTelegramRequest(string method, string query)
+        {
+            try
+            {
+                string requestUrl = $"https://api.telegram.org/bot{BotToken}/{method}?{query}";
+
+                HttpResponseMessage response = _httpClient.GetAsync(requestUrl).Result;
+                string responseContent = response.Content.ReadAsStringAsync().Result;
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    ServerMaster.SendNewLogMessage($"Telegram {method} error: {responseContent}", LogMessageType.Error);
+                }
+            }
+            catch (Exception error)
+            {
+                ServerMaster.SendNewLogMessage(error.ToString(), LogMessageType.Error);
             }
         }
 
@@ -532,7 +733,7 @@ namespace OsEngine.Logging
 
     public class From
     {
-        public int id { get; set; }
+        public long id { get; set; }
         public bool is_bot { get; set; }
         public string first_name { get; set; }
         public string last_name { get; set; }
