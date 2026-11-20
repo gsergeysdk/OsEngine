@@ -67,7 +67,8 @@ using System.Threading;
 
 Исполнение (группа "Orders"), "Order execution":
 - LimitThenMarket - вход, выход по каналу и частичная фиксация лимиткой по лучшей цене своей стороны стакана
-  (покупка - bid, продажа - ask: комиссия мейкера). Через "Limit wait seconds" лимитка снимается, неисполненный
+  (покупка - bid, продажа - ask: комиссия мейкера), сдвинутой в сторону рынка на "Limit slippage %"
+  (больше спреда - лимитка исполняется сразу, но не хуже заданной цены). Через "Limit wait seconds" лимитка снимается, неисполненный
   остаток добивается рынком. В реале остаток считается по исполненному объёму лимитки с биржи после того,
   как биржа подтвердила, что лимитка не активна; исполненный объём неизвестен - вход и фиксация
   не добиваются (выход по каналу добивается: ордера закрытия на Bybit reduceOnly). Если на набранной
@@ -185,6 +186,7 @@ namespace OsEngine.Robots.SDKRobots
         // Исполнение ордеров: рынок или лимитка с добивкой рынком
         private StrategyParameterString _orderExecution;
         private StrategyParameterInt _limitWaitSeconds;
+        private StrategyParameterDecimal _limitSlippagePercent;
 
         // Лимитки, которые ждут исполнения: по истечении времени снимаются, остаток добивается рынком
         private class PendingExecution
@@ -293,6 +295,11 @@ namespace OsEngine.Robots.SDKRobots
             // (комиссия мейкера), через "Limit wait seconds" остаток добивается рынком. Market - всё по рынку
             _orderExecution = CreateParameter("Order execution", "LimitThenMarket", new[] { "Market", "LimitThenMarket" }, "Orders");
             _limitWaitSeconds = CreateParameter("Limit wait seconds", 30, 5, 600, 5, "Orders");
+
+            // Проскальзывание лимитки в % от цены: цена сдвигается от своей стороны стакана в сторону рынка
+            // (покупка - bid + %, продажа - ask - %). 0 - лимитка мейкера по лучшей цене. Больше спреда -
+            // лимитка исполняется сразу (комиссия тейкера), но не хуже заданной цены
+            _limitSlippagePercent = CreateParameter("Limit slippage %", 0.1m, 0m, 1m, 0.01m, "Orders");
 
             _tradeScreener.CreateCandleIndicator(PcNum, "PriceChannel", GetPcParameters(), "Prime");
             _tradeScreener.CreateCandleIndicator(PcShortNum, "PriceChannel", GetPcShortParameters(), "Prime");
@@ -1501,6 +1508,11 @@ namespace OsEngine.Robots.SDKRobots
             {
                 price = lastClose;
             }
+
+            // Проскальзывание: сдвиг в сторону рынка (покупка - выше, продажа - ниже)
+            decimal slippage = price * _limitSlippagePercent.ValueDecimal / 100m;
+
+            price = orderSide == Side.Buy ? price + slippage : price - slippage;
 
             return price;
         }
