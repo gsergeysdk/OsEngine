@@ -1,6 +1,7 @@
 ﻿using OsEngine.Attributes;
 using OsEngine.Entity;
 using OsEngine.Logging;
+using OsEngine.Market;
 using OsEngine.OsTrader.Panels;
 using OsEngine.OsTrader.Panels.Attributes;
 using OsEngine.OsTrader.Panels.Tab;
@@ -244,6 +245,23 @@ namespace OsEngine.Robots
                 LogMessageType.Error);
         }
 
+        // Funds that the broker has already blocked and that cannot be spent.
+        // Transaq keeps them out of the currency position, so they have to be
+        // subtracted by hand. Other connectors report the position net of them.
+        private decimal GetBlockedMoney(Portfolio portfolio)
+        {
+            if (_tab.Connector == null
+                || _tab.Connector.ServerType != ServerType.Transaq)
+                return 0;
+
+            decimal blockedMoney = portfolio.ValueBlocked;
+
+            if (blockedMoney < 0m)
+                return 0;
+
+            return blockedMoney;
+        }
+
         // Logic
         // Candle Finished Event
         private void _tab_CandleFinishedEvent(List<Candle> candles)
@@ -286,6 +304,19 @@ namespace OsEngine.Robots
                     lqdtCount = positionOnBoard[i].ValueCurrent;
                 if (positionOnBoard[i].SecurityNameCode == TradeAssetInPortfolio.ValueString)
                     fullMoney = positionOnBoard[i].ValueCurrent;
+            }
+
+            // Transaq reports the currency position without the blocked funds, so the robot
+            // sees more money than it can really spend and takes too much into the position
+            decimal blockedMoney = GetBlockedMoney(myPortfolio);
+
+            if (blockedMoney > 0m)
+            {
+                fullMoney -= blockedMoney;
+
+                if (showErrorMessage.ValueBool)
+                    SendNewLogMessage($"Blocked money {blockedMoney} subtracted, free money is {fullMoney}",
+                        LogMessageType.System);
             }
 
             fullMoney -= GetCurrentMinMoney(_tab.TimeServerCurrent);
