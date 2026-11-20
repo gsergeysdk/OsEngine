@@ -16,11 +16,20 @@ Trading robot for osEngine
 
 The trend robot-screener on Adaptive Price Channel and Volatility group.
 
+Regime: Off / On (long and short) / OnlyLong / OnlyShort.
+
 Buy:
 1. The candle closed above the upper line of the Price Channel
-2. Filter by volatility groups. All screener papers are divided into 3 groups. One of them is traded.
+2. Filter by volatility groups (can be turned off). All screener papers are divided into 3 groups. One of them is traded.
+3. Sma filter (optional): Sma is not falling
+
+Sell:
+1. The candle closed below the lower line of the Price Channel
+2. Filter by volatility groups (can be turned off)
+3. Sma filter (optional): Sma is not rising
 
 Exit for long: When the Price Channel bottom line is broken
+Exit for short: When the Price Channel upper line is broken
 
 */
 
@@ -35,6 +44,7 @@ namespace OsEngine.Robots.SDKRobots
         private StrategyParameterString _regime;
         private StrategyParameterInt _icebergCount;
         private StrategyParameterInt _maxPositions;
+        private StrategyParameterBool _volatilityFilterIsOn;
         private StrategyParameterInt _clusterToTrade;
         private StrategyParameterInt _clustersLookBack;
 
@@ -46,6 +56,7 @@ namespace OsEngine.Robots.SDKRobots
 
         // Trade periods
         private NonTradePeriods _tradePeriodsSettings;
+        private StrategyParameterBool _tradePeriodsIsOn;
         private StrategyParameterButton _tradePeriodsShowDialogButton;
 
         // Volatility clusters
@@ -85,11 +96,13 @@ namespace OsEngine.Robots.SDKRobots
             _screenerTab.CandleFinishedEvent += _screenerTab_CandleFinishedEvent;
 
             // Basic settings
-            _regime = CreateParameter("Regime", "Off", new[] { "Off", "On" });
+            _regime = CreateParameter("Regime", "Off", new[] { "Off", "On", "OnlyLong", "OnlyShort" });
             _icebergCount = CreateParameter("Iceberg orders count", 1, 1, 3, 1);
+            _volatilityFilterIsOn = CreateParameter("Volatility filter is on", true);
             _clusterToTrade = CreateParameter("Volatility cluster to trade", 2, 1, 3, 1);
             _clustersLookBack = CreateParameter("Volatility cluster lookBack", 100, 10, 300, 1);
             _maxPositions = CreateParameter("Max poses", 10, 1, 20, 1);
+            _tradePeriodsIsOn = CreateParameter("Non trade periods is on", true);
             _tradePeriodsShowDialogButton = CreateParameterButton("Non trade periods");
             _tradePeriodsShowDialogButton.UserClickOnButtonEvent += _tradePeriodsShowDialogButton_UserClickOnButtonEvent;
 
@@ -211,14 +224,16 @@ namespace OsEngine.Robots.SDKRobots
                 return;
             }
 
-            if (_tradePeriodsSettings.CanTradeThisTime(tab.TimeServerCurrent) == false)
+            if (_tradePeriodsIsOn.ValueBool == true
+                && _tradePeriodsSettings.CanTradeThisTime(tab.TimeServerCurrent) == false)
             {
                 return;
             }
 
             List<Position> openPositions = tab.PositionsOpenAll;
 
-            if (openPositions.Count == 0 
+            if (openPositions.Count == 0
+                && _volatilityFilterIsOn.ValueBool == true
                 && _clusterToTrade.ValueInt != 0)
             {
                 if (_lastTimeSetClusters == DateTime.MinValue
@@ -269,17 +284,19 @@ namespace OsEngine.Robots.SDKRobots
                 Aindicator priceChannel = (Aindicator)tab.Indicators[0];
 
                 decimal pcUp = priceChannel.DataSeries[0].Values[priceChannel.DataSeries[0].Values.Count - 2];
+                decimal pcDown = priceChannel.DataSeries[1].Values[priceChannel.DataSeries[1].Values.Count - 2];
 
-                if (pcUp == 0)
+                if (pcUp == 0
+                    || pcDown == 0)
                 {
                     return;
                 }
 
                 decimal candleClose = candles[candles.Count - 1].Close;
 
-                if (candleClose > pcUp)
+                if (candleClose > pcUp
+                    && _regime.ValueString != "OnlyShort")
                 {
-
                     if (_smaFilterIsOn.ValueBool == true)
                     {
                         decimal smaValue = Sma(candles, _smaFilterLen.ValueInt, candles.Count - 1);
@@ -295,6 +312,25 @@ namespace OsEngine.Robots.SDKRobots
                     decimal vol = volume.GetVolume(tab);
                     if (vol > 0)
                         tab.BuyAtIcebergMarket(vol, _icebergCount.ValueInt, 1000);
+                }
+                else if (candleClose < pcDown
+                    && _regime.ValueString != "OnlyLong")
+                {
+                    if (_smaFilterIsOn.ValueBool == true)
+                    {
+                        decimal smaValue = Sma(candles, _smaFilterLen.ValueInt, candles.Count - 1);
+                        decimal smaPrev = Sma(candles, _smaFilterLen.ValueInt, candles.Count - 2);
+
+                        if (smaValue > smaPrev)
+                        {
+                            return;
+                        }
+                    }
+                    if (!support.CanOpenNewPosition(tab, candles, candleClose, Side.Sell))
+                        return;
+                    decimal vol = volume.GetVolume(tab);
+                    if (vol > 0)
+                        tab.SellAtIcebergMarket(vol, _icebergCount.ValueInt, 1000);
                 }
             }
             else // Close logic
@@ -314,18 +350,35 @@ namespace OsEngine.Robots.SDKRobots
 
                 Aindicator priceChannel = (Aindicator)tab.Indicators[0];
 
-                decimal pcDown = priceChannel.DataSeries[1].Values[^2];
-
-                if (pcDown == 0)
-                {
-                    return;
-                }
-
                 decimal lastClose = candles[^1].Close;
 
-                if(lastClose <= pcDown)
+                if (pos.Direction == Side.Buy)
                 {
-                    tab.CloseAtIcebergMarket(pos,pos.OpenVolume,_icebergCount.ValueInt,1000);
+                    decimal pcDown = priceChannel.DataSeries[1].Values[^2];
+
+                    if (pcDown == 0)
+                    {
+                        return;
+                    }
+
+                    if (lastClose <= pcDown)
+                    {
+                        tab.CloseAtIcebergMarket(pos, pos.OpenVolume, _icebergCount.ValueInt, 1000);
+                    }
+                }
+                else // Side.Sell
+                {
+                    decimal pcUp = priceChannel.DataSeries[0].Values[^2];
+
+                    if (pcUp == 0)
+                    {
+                        return;
+                    }
+
+                    if (lastClose >= pcUp)
+                    {
+                        tab.CloseAtIcebergMarket(pos, pos.OpenVolume, _icebergCount.ValueInt, 1000);
+                    }
                 }
                 //else
                 //    tab.CloseAtTrailingStopMarket(pos, pcDown);
