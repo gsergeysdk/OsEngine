@@ -484,6 +484,12 @@ namespace OsEngine.Robots.MyRobots
 
             DeleteEvent += SDKKorovinPortfolio_DeleteEvent;
 
+            if (startProgram == StartProgram.IsOsTrader)
+            {
+                // команды из Телеграма: старт/стоп робота и статус
+                ServerTelegram.GetServer().TelegramCommandEvent += TelegramCommandHandler;
+            }
+
             CreateNonTradePeriods(name);
 
             Description = "Ребалансировщик портфеля по принципам Ильи Коровина. " +
@@ -661,6 +667,11 @@ namespace OsEngine.Robots.MyRobots
         {
             try
             {
+                if (StartProgram == StartProgram.IsOsTrader)
+                {
+                    ServerTelegram.GetServer().TelegramCommandEvent -= TelegramCommandHandler;
+                }
+
                 if (_nonTradePeriods != null)
                 {
                     _nonTradePeriods.Delete();
@@ -677,6 +688,76 @@ namespace OsEngine.Robots.MyRobots
             {
                 // ignore
             }
+        }
+
+        private string _lastRegime = "Off";
+
+        private void TelegramCommandHandler(string botName, Command cmd)
+        {
+            try
+            {
+                if (botName != null && !NameStrategyUniq.Equals(botName))
+                {
+                    return;
+                }
+
+                if (cmd == Command.StopAllBots || cmd == Command.StopBot)
+                {
+                    _lastRegime = _regime.ValueString;
+                    _regime.ValueString = "Off";
+
+                    SendNewLogMessage($"Changed Bot {NameStrategyUniq} Regime to {_regime.ValueString} " +
+                                      $"by telegram command {cmd}", LogMessageType.User);
+                }
+                else if ((cmd == Command.StartAllBots || cmd == Command.StartBot)
+                    && _regime.ValueString == "Off")
+                {
+                    _regime.ValueString = _lastRegime != "Off" ? _lastRegime : "On";
+
+                    SendNewLogMessage($"Changed bot {NameStrategyUniq} mode to state {_regime.ValueString} " +
+                                      $"by telegram command {cmd}", LogMessageType.User);
+                }
+                else if (cmd == Command.GetStatus)
+                {
+                    bool isConnected = _tabStocks.IsConnected && _tabGold.IsConnected
+                        && _tabLqdt.IsConnected && _tabIndex.IsConnected;
+
+                    SendTelegramStatus(isConnected);
+                }
+            }
+            catch (Exception error)
+            {
+                SendNewLogMessage(error.ToString(), LogMessageType.Error);
+            }
+        }
+
+        private void SendTelegramStatus(bool isConnected)
+        {
+            List<Journal.Journal> journals = GetJournals();
+
+            int count = 0;
+            decimal profit = 0;
+            decimal inputs = 0;
+
+            for (int j = 0; j < journals.Count; j++)
+            {
+                List<Position> openPositions = journals[j].OpenPositions;
+
+                for (int i = 0; i < openPositions.Count; i++)
+                {
+                    Position position = openPositions[i];
+                    count++;
+                    profit += position.ProfitPortfolioAbs;
+                    inputs += position.OpenVolume * position.EntryPrice * position.Lots;
+                }
+            }
+
+            SendNewLogMessage($"\nBot {NameStrategyUniq} is {_regime.ValueString}.\n" +
+                              $"Server Status - {(isConnected ? "Connected" : "Empty")}.\n" +
+                              $"Positions count {count}.\n" +
+                              $"Total invested {inputs.ToString("F2")}.\n" +
+                              $"Profit for all {profit.ToString("F2")}.\n"
+                              , LogMessageType.User);
         }
 
         #endregion

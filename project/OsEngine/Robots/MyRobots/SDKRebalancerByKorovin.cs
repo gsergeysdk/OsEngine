@@ -221,6 +221,9 @@ namespace OsEngine.Robots.MyRobots
                 schedulerThread.IsBackground = true;
                 schedulerThread.Name = NameStrategyUniq + " daily rebalance scheduler";
                 schedulerThread.Start();
+
+                // команды из Телеграма: старт/стоп робота и статус
+                ServerTelegram.GetServer().TelegramCommandEvent += TelegramCommandHandler;
             }
 
             Description = OsLocalization.ConvertToLocString(
@@ -440,6 +443,11 @@ namespace OsEngine.Robots.MyRobots
                 _tabStocks.CandlesSyncFinishedEvent -= TabStocks_CandlesSyncFinishedEvent;
                 DeleteEvent -= SDKRebalancerByKorovin_DeleteEvent;
 
+                if (StartProgram == StartProgram.IsOsTrader)
+                {
+                    ServerTelegram.GetServer().TelegramCommandEvent -= TelegramCommandHandler;
+                }
+
                 List<BotTabSimple> executionTabs;
 
                 lock (_stateLocker)
@@ -466,6 +474,76 @@ namespace OsEngine.Robots.MyRobots
             {
                 SendNewLogMessage(error.ToString(), LogMessageType.Error);
             }
+        }
+
+        private string _lastRegime = "Off";
+
+        private void TelegramCommandHandler(string botName, Command cmd)
+        {
+            try
+            {
+                if (botName != null && !NameStrategyUniq.Equals(botName))
+                {
+                    return;
+                }
+
+                if (cmd == Command.StopAllBots || cmd == Command.StopBot)
+                {
+                    _lastRegime = _regime.ValueString;
+                    _regime.ValueString = "Off";
+
+                    SendNewLogMessage($"Changed Bot {NameStrategyUniq} Regime to {_regime.ValueString} " +
+                                      $"by telegram command {cmd}", LogMessageType.User);
+                }
+                else if ((cmd == Command.StartAllBots || cmd == Command.StartBot)
+                    && _regime.ValueString == "Off")
+                {
+                    _regime.ValueString = _lastRegime != "Off" ? _lastRegime : "On";
+
+                    SendNewLogMessage($"Changed bot {NameStrategyUniq} mode to state {_regime.ValueString} " +
+                                      $"by telegram command {cmd}", LogMessageType.User);
+                }
+                else if (cmd == Command.GetStatus)
+                {
+                    bool isConnected = _tabMoneyMarket.IsConnected && _tabGold.IsConnected
+                        && _tabMarketIndex.IsConnected && _tabStocks.IsConnected;
+
+                    SendTelegramStatus(isConnected);
+                }
+            }
+            catch (Exception error)
+            {
+                SendNewLogMessage(error.ToString(), LogMessageType.Error);
+            }
+        }
+
+        private void SendTelegramStatus(bool isConnected)
+        {
+            List<Journal.Journal> journals = GetJournals();
+
+            int count = 0;
+            decimal profit = 0;
+            decimal inputs = 0;
+
+            for (int j = 0; j < journals.Count; j++)
+            {
+                List<Position> openPositions = journals[j].OpenPositions;
+
+                for (int i = 0; i < openPositions.Count; i++)
+                {
+                    Position position = openPositions[i];
+                    count++;
+                    profit += position.ProfitPortfolioAbs;
+                    inputs += position.OpenVolume * position.EntryPrice * position.Lots;
+                }
+            }
+
+            SendNewLogMessage($"\nBot {NameStrategyUniq} is {_regime.ValueString}.\n" +
+                              $"Server Status - {(isConnected ? "Connected" : "Empty")}.\n" +
+                              $"Positions count {count}.\n" +
+                              $"Total invested {inputs.ToString("F2")}.\n" +
+                              $"Profit for all {profit.ToString("F2")}.\n"
+                              , LogMessageType.User);
         }
 
         private void SubscribeExecutionEvents(BotTabSimple tab)

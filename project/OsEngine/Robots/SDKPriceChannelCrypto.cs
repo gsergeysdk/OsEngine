@@ -321,12 +321,87 @@ namespace OsEngine.Robots.SDKRobots
                 worker.IsBackground = true;
                 worker.Name = "SDKPriceChannelCryptoPending";
                 worker.Start();
+
+                // Команды из Телеграма: старт/стоп робота и статус
+                ServerTelegram.GetServer().TelegramCommandEvent += TelegramCommandHandler;
             }
         }
 
         private void SDKPriceChannelCrypto_DeleteEvent()
         {
             _isDeleted = true;
+
+            if (StartProgram == StartProgram.IsOsTrader)
+            {
+                ServerTelegram.GetServer().TelegramCommandEvent -= TelegramCommandHandler;
+            }
+        }
+
+        private string _lastRegime = "Off";
+
+        private void TelegramCommandHandler(string botName, Command cmd)
+        {
+            try
+            {
+                if (botName != null && !NameStrategyUniq.Equals(botName))
+                {
+                    return;
+                }
+
+                if (cmd == Command.StopAllBots || cmd == Command.StopBot)
+                {
+                    _lastRegime = _regime.ValueString;
+                    _regime.ValueString = "Off";
+
+                    SendNewLogMessage($"Changed Bot {NameStrategyUniq} Regime to {_regime.ValueString} " +
+                                      $"by telegram command {cmd}", LogMessageType.User);
+                }
+                else if ((cmd == Command.StartAllBots || cmd == Command.StartBot)
+                    && _regime.ValueString == "Off")
+                {
+                    _regime.ValueString = _lastRegime != "Off" ? _lastRegime : "On";
+
+                    SendNewLogMessage($"Changed bot {NameStrategyUniq} mode to state {_regime.ValueString} " +
+                                      $"by telegram command {cmd}", LogMessageType.User);
+                }
+                else if (cmd == Command.GetStatus)
+                {
+                    SendTelegramStatus(_tradeScreener.IsConnected && _dailyScreener.IsConnected);
+                }
+            }
+            catch (Exception error)
+            {
+                SendNewLogMessage(error.ToString(), LogMessageType.Error);
+            }
+        }
+
+        private void SendTelegramStatus(bool isConnected)
+        {
+            List<Journal.Journal> journals = GetJournals();
+
+            int count = 0;
+            decimal profit = 0;
+            decimal inputs = 0;
+
+            for (int j = 0; j < journals.Count; j++)
+            {
+                List<Position> openPositions = journals[j].OpenPositions;
+
+                for (int i = 0; i < openPositions.Count; i++)
+                {
+                    Position position = openPositions[i];
+                    count++;
+                    profit += position.ProfitPortfolioAbs;
+                    inputs += position.OpenVolume * position.EntryPrice * position.Lots;
+                }
+            }
+
+            SendNewLogMessage($"\nBot {NameStrategyUniq} is {_regime.ValueString}.\n" +
+                              $"Server Status - {(isConnected ? "Connected" : "Empty")}.\n" +
+                              $"Positions count {count}.\n" +
+                              $"Total invested {inputs.ToString("F2")}.\n" +
+                              $"Profit for all {profit.ToString("F2")}.\n"
+                              , LogMessageType.User);
         }
 
         private void _tradeScreener_TestStartEvent()
