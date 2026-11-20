@@ -1821,6 +1821,29 @@ position => position.State != PositionStateType.OpeningFail
                         }
 
                     }
+                    else if (_botTabs[i] is BotTabScreener screener)
+                    {
+                        // торговые вкладки скринера - отдельные BotTabSimple внутри него
+                        List<BotTabSimple> screenerTabs = screener.Tabs;
+
+                        for (int j = 0; screenerTabs != null && j < screenerTabs.Count; j++)
+                        {
+                            screenerTabs[j].CloseAllAtMarket();
+                        }
+
+                        screener.EventsIsOn = false;
+
+                        if (screener.ServerType == ServerType.Tester)
+                        {
+                            List<IServer> allServers = ServerMaster.GetServers();
+                            TesterServer testServer = (TesterServer)allServers.Find(server => server.ServerType == ServerType.Tester);
+
+                            if (testServer != null)
+                            {
+                                testServer.TesterRegime = TesterRegime.Pause;
+                            }
+                        }
+                    }
                 }
             }
             catch (Exception error)
@@ -1841,6 +1864,15 @@ position => position.State != PositionStateType.OpeningFail
                     if (_botTabs[i] is BotTabSimple bot)
                     {
                         bot.CloseAllAtMarket();
+                    }
+                    else if (_botTabs[i] is BotTabScreener screener)
+                    {
+                        List<BotTabSimple> screenerTabs = screener.Tabs;
+
+                        for (int j = 0; screenerTabs != null && j < screenerTabs.Count; j++)
+                        {
+                            screenerTabs[j].CloseAllAtMarket();
+                        }
                     }
                 }
             }
