@@ -366,7 +366,7 @@ namespace OsEngine.Robots.SDKRobots
                 }
                 else if (cmd == Command.GetStatus)
                 {
-                    SendTelegramStatus(_tradeScreener.IsConnected && _dailyScreener.IsConnected);
+                    SendTelegramStatus();
                 }
             }
             catch (Exception error)
@@ -375,7 +375,7 @@ namespace OsEngine.Robots.SDKRobots
             }
         }
 
-        private void SendTelegramStatus(bool isConnected)
+        private void SendTelegramStatus()
         {
             List<Journal.Journal> journals = GetJournals();
 
@@ -397,7 +397,7 @@ namespace OsEngine.Robots.SDKRobots
             }
 
             SendNewLogMessage($"\nBot {NameStrategyUniq} is {_regime.ValueString}.\n" +
-                              $"Server Status - {(isConnected ? "Connected" : "Empty")}.\n" +
+                              $"Server Status - {SDKServerStatus.Get(this)}.\n" +
                               $"Positions count {count}.\n" +
                               $"Total invested {inputs.ToString("F2")}.\n" +
                               $"Profit for all {profit.ToString("F2")}.\n"

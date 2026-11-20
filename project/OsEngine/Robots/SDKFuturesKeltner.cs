@@ -15,6 +15,7 @@ using OsEngine.Market.Servers.Tester;
 using OsEngine.OsTrader.Panels;
 using OsEngine.OsTrader.Panels.Attributes;
 using OsEngine.OsTrader.Panels.Tab;
+using OsEngine.Robots.Helpers;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -424,7 +425,7 @@ namespace OsEngine.Robots.SDKRobots
                 }
 
                 SendNewLogMessage($"\nBot {NameStrategyUniq} is {_regime.ValueString}.\n" +
-                                  $"Server Status - {(_base1.IsConnected && _futs1.IsConnected ? "Connected" : "Empty")}.\n" +
+                                  $"Server Status - {SDKServerStatus.Get(this)}.\n" +
                                   $"Positions count {count}.\n" +
                                   $"Total invested {inputs.ToString("F2")}.\n" +
                                   $"Profit for all {profit.ToString("F2")}.\n"

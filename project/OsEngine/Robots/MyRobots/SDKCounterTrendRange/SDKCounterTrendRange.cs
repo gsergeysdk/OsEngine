@@ -12,6 +12,7 @@ using OsEngine.Market.Servers;
 using OsEngine.OsTrader.Panels;
 using OsEngine.OsTrader.Panels.Attributes;
 using OsEngine.OsTrader.Panels.Tab;
+using OsEngine.Robots.Helpers;
 using System;
 using System.Collections.Generic;
 using System.Threading;
@@ -340,7 +341,7 @@ namespace OsEngine.Robots.MyRobots
                 }
                 else if (cmd == Command.GetStatus)
                 {
-                    SendTelegramStatus(_tab.IsConnected);
+                    SendTelegramStatus();
                 }
             }
             catch (Exception error)
@@ -349,7 +350,7 @@ namespace OsEngine.Robots.MyRobots
             }
         }
 
-        private void SendTelegramStatus(bool isConnected)
+        private void SendTelegramStatus()
         {
             List<Journal.Journal> journals = GetJournals();
 
@@ -371,7 +372,7 @@ namespace OsEngine.Robots.MyRobots
             }
 
             SendNewLogMessage($"\nBot {NameStrategyUniq} is {_regime.ValueString}.\n" +
-                              $"Server Status - {(isConnected ? "Connected" : "Empty")}.\n" +
+                              $"Server Status - {SDKServerStatus.Get(this)}.\n" +
                               $"Positions count {count}.\n" +
                               $"Total invested {inputs.ToString("F2")}.\n" +
                               $"Profit for all {profit.ToString("F2")}.\n"
