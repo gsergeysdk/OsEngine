@@ -118,9 +118,10 @@ namespace OsEngine.Market.Servers.Bybit
             get { return true; }
         }
 
+        // серверные стоп-ордера: условные ордера Bybit (triggerPrice), linear / inverse / spot
         public bool StopOrdersIsSupport
         {
-            get { return false; }
+            get { return true; }
         }
 
         public bool IsCanChangeOrderPrice

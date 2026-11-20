@@ -3440,6 +3440,7 @@ namespace OsEngine.Market.Servers.Bybit
                         "NEW" => OrderStateType.Active,
                         "ORDER_NEW" => OrderStateType.Active,
                         "UNTRIGGERED" => OrderStateType.Active,
+                        "TRIGGERED" => OrderStateType.Active,
                         "PARTIALLYFILLED" => OrderStateType.Partial,
                         "FILLED" => OrderStateType.Done,
                         "ORDER_FILLED" => OrderStateType.Done,
@@ -3497,6 +3498,15 @@ namespace OsEngine.Market.Servers.Bybit
                     }
 
                     newOrder.TypeOrder = responseMyTrades.data[i].orderType.ToLower() == "market" ? OrderPriceType.Market : OrderPriceType.Limit;
+
+                    decimal triggerPrice = GetTriggerPrice(responseMyTrades.data[i].triggerPrice);
+
+                    if (triggerPrice > 0)
+                    {   // условный ордер: тип и уровень сохраняются и после срабатывания
+                        newOrder.TypeOrder = newOrder.TypeOrder == OrderPriceType.Market ? OrderPriceType.StopMarket : OrderPriceType.StopLimit;
+                        newOrder.StopPrice = triggerPrice;
+                    }
+
                     newOrder.NumberMarket = responseMyTrades.data[i].orderId;
 
                     if (responseMyTrades.data[i].cumExecQty != null)
@@ -4181,10 +4191,22 @@ namespace OsEngine.Market.Servers.Bybit
                     return;
                 }
 
-                if (order.TypeOrder == OrderPriceType.Limit
+                if ((order.TypeOrder == OrderPriceType.Limit
+                    || order.TypeOrder == OrderPriceType.StopLimit)
                     && order.Price <= 0)
                 {
                     SendLogMessage($"SendOrder>. Limit order with zero price rejected: {order.SecurityNameCode}", LogMessageType.Error);
+                    CreateOrderFail(order);
+                    return;
+                }
+
+                bool isStopOrder = order.TypeOrder == OrderPriceType.StopMarket
+                    || order.TypeOrder == OrderPriceType.StopLimit;
+
+                if (isStopOrder
+                    && order.StopPrice <= 0)
+                {
+                    SendLogMessage($"SendOrder>. Stop order with zero trigger price rejected: {order.SecurityNameCode}", LogMessageType.Error);
                     CreateOrderFail(order);
                     return;
                 }
@@ -4198,7 +4220,8 @@ namespace OsEngine.Market.Servers.Bybit
 
                 string type = "Limit";
 
-                if (order.TypeOrder == OrderPriceType.Market)
+                if (order.TypeOrder == OrderPriceType.Market
+                    || order.TypeOrder == OrderPriceType.StopMarket)
                 {
                     type = "Market";
                 }
@@ -4259,7 +4282,7 @@ namespace OsEngine.Market.Servers.Bybit
                 parameters["orderType"] = type;
                 parameters["qty"] = order.Volume.ToString().Replace(",", ".");
 
-                if (order.TypeOrder == OrderPriceType.Limit)
+                if (type == "Limit")
                 {
                     parameters["price"] = order.Price.ToString().Replace(",", ".");
                 }
@@ -4273,6 +4296,41 @@ namespace OsEngine.Market.Servers.Bybit
                 if (HedgeMode)
                 {
                     parameters["reduceOnly"] = reduceOnly;
+                }
+
+                if (order.PositionConditionType == OrderPositionConditionType.Close
+                    && ((string)parameters["category"] == Category.linear.ToString()
+                        || (string)parameters["category"] == Category.inverse.ToString()))
+                {   // ордер закрытия не должен открыть встречную позицию и в One-Way (галка Hedge Mode
+                    // выключена или Portfolio Margin): например, лимитка выхода, которая исполнится
+                    // после того, как позицию уже закрыл стоп
+                    parameters["reduceOnly"] = true;
+                }
+
+                if (isStopOrder)
+                {
+                    // условный ордер: уходит в стакан, когда последняя цена дойдёт до triggerPrice.
+                    // Покупка - цена растёт до уровня, продажа - падает
+                    string category = (string)parameters["category"];
+
+                    if (category == Category.option.ToString())
+                    {
+                        SendLogMessage($"SendOrder>. Bybit doesn't support stop orders for options. {order.SecurityNameCode}", LogMessageType.Error);
+                        CreateOrderFail(order);
+                        return;
+                    }
+
+                    parameters["triggerPrice"] = order.StopPrice.ToString().Replace(",", ".");
+
+                    if (category == Category.spot.ToString())
+                    {
+                        parameters["orderFilter"] = "StopOrder";
+                    }
+                    else
+                    {
+                        parameters["triggerDirection"] = order.Side == Side.Buy ? 1 : 2;
+                        parameters["triggerBy"] = "LastPrice";
+                    }
                 }
 
                 string jsonPayload = parameters.Count > 0 ? GenerateQueryString(parameters) : "";
@@ -4332,6 +4390,17 @@ namespace OsEngine.Market.Servers.Bybit
             LogOrderInFullLog(order, "SendOrderFail");
 
             MyOrderEvent?.Invoke(order);
+        }
+
+        // Уровень срабатывания условного ордера. У обычных ордеров поле пустое или "0"
+        private decimal GetTriggerPrice(string triggerPrice)
+        {
+            if (string.IsNullOrEmpty(triggerPrice))
+            {
+                return 0;
+            }
+
+            return triggerPrice.ToDecimal();
         }
 
         public void ChangeOrderPrice(Order order, decimal newPrice)
@@ -4446,6 +4515,13 @@ namespace OsEngine.Market.Servers.Bybit
             else
             {
                 parameters["orderLinkId"] = order.NumberUser.ToString();
+            }
+
+            if ((string)parameters["category"] == Category.spot.ToString()
+                && (order.TypeOrder == OrderPriceType.StopMarket
+                    || order.TypeOrder == OrderPriceType.StopLimit))
+            {   // условный спот-ордер снимается только с фильтром StopOrder
+                parameters["orderFilter"] = "StopOrder";
             }
 
             try
@@ -4923,7 +4999,8 @@ namespace OsEngine.Market.Servers.Bybit
                 newOrder.TimeDone = TimeManager.GetDateTimeFromTimeStamp(Convert.ToInt64(order.updatedTime));
             }
             else if (order.orderStatus == "New"
-                || order.orderStatus == "Untriggered")
+                || order.orderStatus == "Untriggered"
+                || order.orderStatus == "Triggered")
             {
                 newOrder.State = OrderStateType.Active;
             }
@@ -4938,6 +5015,15 @@ namespace OsEngine.Market.Servers.Bybit
             }
 
             newOrder.TypeOrder = order.orderType.ToLower() == "market" ? OrderPriceType.Market : OrderPriceType.Limit;
+
+            decimal triggerPrice = GetTriggerPrice(order.triggerPrice);
+
+            if (triggerPrice > 0)
+            {   // условный ордер: тип и уровень сохраняются и после срабатывания
+                newOrder.TypeOrder = newOrder.TypeOrder == OrderPriceType.Market ? OrderPriceType.StopMarket : OrderPriceType.StopLimit;
+                newOrder.StopPrice = triggerPrice;
+            }
+
             newOrder.PortfolioNumber = "BybitUNIFIED";
 
             newOrder.NumberMarket = order.orderId;
